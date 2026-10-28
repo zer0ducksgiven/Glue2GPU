@@ -57,7 +57,16 @@ Still different from stock:
   branch), **TU4 runs 91.7 / 92.5 fps against stock's 93.8 / 92.5**. The base game is unchanged
   (93.8 / 94.1). A 10-minute TU4
   drive soak (`run/tu4-soak`, before the index fix): no crash, freeze or stall over 1 s; 67.3 fps
-  average, 58.8 minimum.
+  average, 58.8 minimum. TU4 at higher resolutions: 1440p ReGPU 90.6 / 88.1 vs stock 66.9 / 67.4;
+  4K ReGPU 83.5 / 80.5 vs stock 36.3 / 35.2.
+- **Open: TU4 varied-route soak is slower than stock.** The same 10-minute route after the index
+  fix: ReGPU 64.9 avg / 57.6 min (`run/tu4-soak2`) vs stock 87.9 / 83.4 (`run/tu4-soak-xenos`).
+  `REGPU_PERF` on that route (`run/tu4-soakprof`, 58.6 fps): GPU time only 5.8 ms; the renderer's
+  draw loop takes 12.7 ms, of which **constants 8.7 ms, almost all texture fetch constants
+  (6.95 ms)** at ~3400 draws/frame (slow frames reach 16–18 ms there). This is CPU-bound
+  fetch-constant processing (likely per-draw texture lookup/descriptor work), the next thing
+  to optimise: cache fetch-constant → descriptor results across draws when the 6 dwords are
+  unchanged.
 - TU4 on ReGPU renders correctly overall (`run/tu4_compare.png`). As in the base game, sun
   shadows on the ground are much weaker than stock's crisp tower shadows. ReGPU also implements no
   polygon offset (`PA_SU_POLY_OFFSET_*`), though missing depth bias would add shadow, not remove
