@@ -493,5 +493,22 @@ output edits (`probe.py`).
   0, 0.498, 0.498, 0 there) and a 16x16 table (9046), and writes sky (0.805, 0.871, 0.871) at that
   pixel. So the shapes are geometry the game itself draws into the scene and then hides in
   post-processing; on ReGPU that post step doesn't hide it.
-- Next: find ReGPU's equivalent composite, compare its four inputs at that pixel with stock's
-  (most likely the 640x360 buffer or how its resolve is produced), and fix the one that differs.
+- **Correction: ReGPU hides it the same way.** ReGPU's composite (guest `ps 60de2277c4f1b1dd`,
+  events 38831/38835 in `fh1_capture_2`) has the same four inputs (scene, 320x192 bloom, 640x360
+  8888, 16x16 table) with matching values at 1050,50 and writes sky there too. The shape picked for
+  the first pixel history came from a stale swap buffer (285, a frame before the capture): all of
+  capture 2's own frames show sky at 1050,50. Earlier conclusions about 32607 still stand (both
+  sides draw the sliver), but that frame wasn't a broken one.
+- Frames that do show a shape inside a capture: `run/rd-tu4-sky/in_*.png` (`inframes.txt`), e.g.
+  capture 1's frame copied at event 27920, shape at ~1020,70. There the composite (event 27395)
+  has the same inputs at the pixel (scene 0.068/0.063/0.051, a 0.25; 640x360 0.498/0.498; bloom
+  similar; only the 16x16 table differs, 0.843 vs 0.91) but outputs the shape (0.59, 0.558, 0.511)
+  instead of sky. The composite (`run/comp-debug/comp.hlsl`) takes several jittered scene samples
+  (offsets from a frac() hash and pc[42]) and picks between them by exact alpha equality
+  (`r3.w != r7.w` ...), then grades through a texture (slot 7).
+- Ruled out: 2-bit alpha quantisation of k_2_10_10_10_FLOAT targets (stock's resolved scene alpha
+  reads 1/3, ReGPU's 0.25; quantising at the output was tried, A/B'd live in `run/alphaq-test`,
+  shapes unchanged, reverted).
+- Next: in capture 1's shape frame, evaluate the composite's samples at 1020,70 (its jitter
+  offsets, each sample's colour and alpha) to see which sample brings the shape in, and compare
+  the same samples' sources with stock.
