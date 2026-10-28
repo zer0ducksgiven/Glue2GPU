@@ -1,5 +1,48 @@
 # FH1 spike: ReGPU as a ReIGlue GPU plugin
 
+## Overnight results (2026-10-28, read this first)
+
+FH1 base game from the user's save, RTX 4070, stock ReXGlue/Xenos D3D12 against ReGPU through the
+plugin (early fences on). fps averaged over 60–100 s standing and 105–150 s driving
+(`run/<name>/forza.log`, `FORZA_FPSLOG`); GPU busy from `nvidia-smi`.
+
+| Resolution | Stock standing / driving | ReGPU standing / driving | GPU busy (stock / ReGPU) |
+|---|---|---|---|
+| 1280×720 | 92.9 / 92.6 | 92.7 / 92.0 | 75% / 72% |
+| 2560×1440 | 68.3 / 66.8 | **89.3 / 89.2** (+31%) | 96% / 98% |
+| 3840×2160 | 36.0 / 35.5 | **83.5 / 79.7** (2.3×) | 98% / 100% |
+
+At 720p both renderers are limited by the game's CPU side. Once the renderer is the limit, ReGPU is
+much faster. The 4K screenshots are both real 3840×2160 (`run/k4_detail.png`).
+
+Visual fixes tonight (ReGPU branch `rexglue-driver`, commits after `8606951`):
+
+| Bug | Cause | Fix |
+|---|---|---|
+| HUD missing, car detail and ground textures wrong, scene blur | `_AS_16_16_16_16` texture formats (50–56) unsupported | Decode as their base formats (`efb0787`) |
+| Green car glass | Live cube reflection's ±Y faces exchanged against stock | Opt-in `REGPU_CUBE_Y_SWAP`, set by the plugin (`550e104`); root cause not found |
+| Purple shapes in the sky | Resolve clear value read as ARGB 8888 for every format (FH1's 2_10_10_10_FLOAT scene was cleared to `C8521485`, a grey in 7e3) | Clear decoded per colour format (`90accac`) |
+| Whole scene blurred standing still | Speed blur reads stencil via an 8888 fetch of the depth resolve; ours held depth only | Depth resolves also keep the D24S8 words (`25b3309`) |
+| Crashes under RenderDoc / copy path | Shader scan and vertex uploads read ReXGlue's no-access guest pages | Readable-memory checks (`90accac`, `c30d875`) |
+| 60 fps cap | Plugin left ReGPU's vsync on (FH1 has no vsync setting) | vsync off by default, like stock (plugin `e8d3d1c`) |
+
+Comparisons: `run/format_fix_compare.png`, `run/cube_fix_compare.png`,
+`run/clear_fix_compare.png`, `run/pack_compare.png`, `run/menu_compare.png`.
+
+Still different from stock:
+- **Car glass too bright.** The interior shows through, but the reflection is warm and bright
+  (window ~(139,112,80) against stock's (28,36,42)). Stock takes the same cube-reflection branch
+  with the same bools. The reflection inputs need a step-by-step comparison against stock.
+- **Contrast slightly lower** (menu luma stddev 53.7 against 59.2; same mean). Xenos gamma-signed
+  fetches aren't applied by default. With them on (`REGPU_TEXTURE_GAMMA=1`) the image goes far
+  too dark. The split modes show resolves carry all of it (mode 5); colour maps change nothing
+  (mode 4).
+- **Shadowed areas in the festival brighter than stock** (wall 51 against 14); the menu scene
+  matches closely. Not traced yet.
+- FM2 wasn't re-run: it keeps its renderer in-tree, so tonight's ReGPU branch can't be tested
+  there without porting. `90accac` changes 8888 clears to Xenia's channel order (red in the low
+  byte), and FM2 could see that.
+
 Pinned versions (in `thirdparty/`, shallow clones):
 - ReIGlue `fh1-0.10.0.24-r2` @ `317216e8d66d766bd13abdb672975458f30ca576`. This is FH1's
   `REIGLUE_TAG`/`REIGLUE_COMMIT` from `tools/build_rexglue_sdk.sh`.
