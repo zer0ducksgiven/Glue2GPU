@@ -421,3 +421,17 @@ output edits (`probe.py`).
 2. Copy `rexgpu-regpu.dll` beside the exe and run with `--gpu_plugin=regpu --gpu_backend=d3d12`.
    That's gate 1, which answers open questions 2–5.
 3. Re-run FM2 on the ReGPU branch.
+
+### Grey sky shapes (TU4, festival, live debug session `run/sky-debug`)
+- They move while the camera is still (animated, not static geometry), have hard triangle edges,
+  and the cloud/haze layers (`ps 299007422ef6aee0`, `c99dc898d92fe36c`: 8.7k/9.3k-vertex meshes
+  sampling DXN) do not cover them: those layers fail there. Turning both layers off removes the
+  clouds but not the shapes (they get darker).
+- No single scene pixel shader's red tint reaches them: not the sky dome (`29c8f1947b280cc3`),
+  not any blended shader, not any opaque one except full-screen post passes. Dropping the
+  z-prepass vertex shaders and forcing vertex copies (`REGPU_NO_DIRECT_FETCH`) don't remove them.
+- So they are likely drawn into an intermediate target that a post pass composites (a
+  light-shaft/sun-occlusion or sky-occlusion buffer, which also fits the dark noisy square near
+  the horizon), or they are depth written outside the scene pass. Next: a RenderDoc capture of
+  TU4 with pixel history on a shape pixel (rdcap.ps1 targets the base build; it needs the tu4 build
+  and an HDR-aware export of the R16G16B16A16 targets).
