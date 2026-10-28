@@ -453,6 +453,20 @@ output edits (`probe.py`).
   vertex index handling Xenia does and ReGPU doesn't (24-bit mask after VGT_INDX_OFFSET, clamp to
   VGT_MIN/MAX_VTX_INDX, from dxbc_translator.cpp): implemented, A/B'd live (`run/clamp-test`), no
   change, reverted.
-- The shapes always appear next to the stage confetti and move like it. Next: dump primitive
-  666's three indices and vertex data from guest memory at draw time on ReGPU and on stock
-  (ReXGlue's D3D12 backend, via RenderDoc on the stock build), and see which one differs.
+- The shapes always appear next to the stage confetti and move like it.
+- **Primitive 666 dumped** (`run/rd-tu4-sky/dump666b.txt`, `consts.txt`): the draw is a triangle
+  list built from ReGPU's expanded strip (restart on), with copied vertices. Its indices
+  (505, 487, 457) sit among normal neighbours and inside the buffer; the vertices are plausible
+  (a 130 m sheet of 2670 vertices at y ~ -9; these three within ~9 m of each other, ~2 m from
+  the camera); the constants match the neighbouring draws, and pushing vertex 505 through them
+  by hand gives the post-VS position RenderDoc shows. Viewport: vscale (640, -360, -1), voffset
+  (640, 360, 1): by the game's own matrices the sliver lands where ReGPU draws it.
+- **Stock** (`run/rd-tu4-stock-rtv`, captured with `--render_target_path_d3d12=rtv` so draws are
+  visible): stock renders the scene in 1280x512 tile passes; in the top tile's pass only the sky
+  dome and cloud layers touch pixel 1050,50, so stock has no ground there in that frame. (Its
+  history at that pixel also shows a lower tile's ground at depth ~0.02, failing depth.)
+- More ruled out: depth clip following CLIP_DISABLE as Xenia does (tried, no change, reverted),
+  tile merging (`REGPU_NO_TILE_MERGE=1`, `run/tilemerge-test`, still there). ReGPU skips no draws.
+- Open: whether stock submits this sheet at all in a frame where ReGPU shows it (one stock frame
+  may simply catch a moment without it). Next idea: Xenia's own GPU trace (`D:\xenia-ref\gputrace`)
+  or a per-draw command dump on both sides at the same frame, to diff the guest command stream.
