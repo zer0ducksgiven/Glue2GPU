@@ -545,6 +545,18 @@ output edits (`probe.py`).
   `regpu::driver::SetSwitch`: `REGPU_ASYNC_SHADERS` is read at library load, before the plugin's
   environment writes), verified cold with no settings (`run/fx-cold-default2`). Risk to watch: a
   one-off draw skipped while its shader builds stays missing (nothing visible in free roam).
+- **Grey sky shapes: root cause found and fixed.** The scene render target is stored rotated 180
+  degrees (the composite samples it at 1 - uv), so the pixel traced earlier (1050,50 in the target)
+  was ground, not sky. Debugging the composite in RenderDoc showed the shape frame's scene image
+  itself holds the shape. At the right target pixel (259,649), the sky dome and cloud draws are
+  *depth-clipped* in every pass, leaving the clear colour (0.26, resolved at 1/4: the grey).
+  ReGPU's vertex shader divided z by w and multiplied it back; the sky dome sits on the far plane
+  (z = w) and the round trip put fragments a hair past it, so they were clipped as the camera
+  moved. Depth is now homogeneous (z * scale + offset * w, as Xenia), plus no depth clipping
+  under CLIP_DISABLE. FX A/B (`run/fx-depthw-ab`): old depth 4 of 8 frames with shapes, new 0 of
+  8; plain run 0 of 8 (`run/fx-depthw-confirm`). The alpha rounding committed earlier wasn't the
+  cause (it reduced the shapes for reasons not understood, likely noise between runs); it stays as
+  hardware-accurate behaviour with its switches.
 - **Photo mode's dark quadrant reproduced on the FX** (`run/fx-photo8`, `fx-photo9`): the scripted
   route is START, DOWN (one press moves two items), A, A at 125-134 s (`fxdrive.ps1 -PressExtra`).
   The quadrant right and below the screen centre lacks the haze the other three have. Not
