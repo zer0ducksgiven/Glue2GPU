@@ -57,6 +57,10 @@ Still different from stock:
   copies. Without early fences the copies go away, but fence latency holds it at ~60 instead.
   Closing this needs page-level write tracking of guest memory (what stock does), a ReGPU design
   change. The base game is unaffected (94.8 / 91.0 with the write-back policy).
+- TU4 on ReGPU renders correctly overall (`run/tu4_compare.png`). As in the base game, sun
+  shadows on the ground are much weaker than stock's crisp tower shadows. ReGPU also implements no
+  polygon offset (`PA_SU_POLY_OFFSET_*`), though missing depth bias would add shadow, not remove
+  it.
 - **The base-game freeze** from earlier is very likely the same thing (same code, same point,
   intermittent there). The write-back policy covers both builds.
 - FM2 wasn't re-run: it keeps its renderer in-tree, so tonight's ReGPU branch can't be tested
