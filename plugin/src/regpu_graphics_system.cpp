@@ -188,6 +188,11 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     // REGPU_CUBE_Y_SWAP: FH1's live cube reflections have their +Y/-Y faces exchanged otherwise.
     if (!std::getenv("REGPU_CUBE_Y_SWAP"))
         _putenv_s("REGPU_CUBE_Y_SWAP", "1");
+    // REGPU_RESOLVE_IMAGE_BASE: FH1's shadow atlas resolves one quadrant at a time into the image's
+    // own base; otherwise the quadrants below the first row land elsewhere and the world has no
+    // sun shadows.
+    if (!std::getenv("REGPU_RESOLVE_IMAGE_BASE"))
+        _putenv_s("REGPU_RESOLVE_IMAGE_BASE", "1");
 
     regpu::Start();
     started_ = true;
