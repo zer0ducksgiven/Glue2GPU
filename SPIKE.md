@@ -299,11 +299,25 @@ output edits (`probe.py`).
   them to the base. This restored the HUD (speedometer ring, icons, minimap pin), the car badge
   and plate detail, the ground textures, and removed the scene-wide blur
   (`run/format_fix_compare.png`).
-- **Green glass (open):** the glass pixel shader `d46f6f62d4f15ffb` refracts the scene resolve
-  at `1C4E1000` (2_10_10_10). Its colour term `r1` is green. Before the fix, the car-interior
-  region of that resolve was solid magenta; after it, the interior shows through with a green
-  tint. Next: check how ReGPU resolves to and samples 2_10_10_10, which it has no texture decoder
-  for, so only the resolve path covers it.
+- **Green glass: fixed by `REGPU_CUBE_Y_SWAP` (2026-10-28, ReGPU working tree; the plugin turns it
+  on).** Compared against a RenderDoc capture of the stock D3D12 build (`run/rd-stock`, scripts
+  `list.py`, `bools.py`, `cube.py`, run through `qrenderdoc --python`):
+  - The stock glass draws (events 6960/6964) have the **same PS bools** as ReGPU
+    (`xe_bool_constants[1].x = 0x211`: 128, 132, 137). Both take the live-cube reflection path.
+    ReGPU's bool decode and writes are correct.
+  - Stock cube faces at their centres, linear ×16: +X 0.094, −X 0.047, **+Y 0.375/0.25/0.078
+    (warm)**, **−Y 0.28/0.36/0.375 (cool)**, +Z 0.063, −Z 0.28. ReGPU has X and Z the same and
+    **±Y exchanged**.
+  - Xenia's cube-coordinate conversion (`dxbc_translator_fetch.cpp`) is identical to ReGPU's
+    `CubeDirection`, and both read the faces from `base + i × stride` in the same order. All six
+    faces are resolved (order 0, 4, 2, 1, 3, 5, bias −4). So ReGPU's *resolve* of the title's ±Y
+    faces holds the other face's view. Root cause unknown.
+  - The fix copies resolved faces 2/3 into slices 3/2 when assembling a live cube. Behind an opt-in
+    `LiveSwitch` so FM2 is unchanged; the plugin sets it for ReXGlue hosts.
+  - Result (`run/cube_fix_compare.png`): no green; the interior shows through. The window is still
+    brighter and warmer than stock: (129,102,73) vs (16,26,36).
+  - Also in the working tree: biased 2_10_10_10 resolves kept at 16-bit float (didn't fix the
+    glass; more precise), and the `ps HASH @ANCHOR|STATEMENT` probe.
 - **Purple sky shapes (open):** moving objects drawn over the sky, last coloured by the sky/cloud
   pass `299007422ef6aee0` (DXN cloud textures). The stock renderer shows no such shapes.
 

@@ -174,6 +174,12 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
         reinterpret_cast<rex::runtime::MMIOReadCallback>(ReadRegisterThunk),
         reinterpret_cast<rex::runtime::MMIOWriteCallback>(WriteRegisterThunk));
 
+    // ReGPU switches this host needs that are off for XenonRecomp ports (each can still be set
+    // to 0 in the environment).
+    // REGPU_CUBE_Y_SWAP: FH1's live cube reflections have their +Y/-Y faces exchanged otherwise.
+    if (!std::getenv("REGPU_CUBE_Y_SWAP"))
+        _putenv_s("REGPU_CUBE_Y_SWAP", "1");
+
     regpu::Start();
     started_ = true;
     g_running = true;
