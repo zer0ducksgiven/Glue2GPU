@@ -36,6 +36,10 @@ Still different from stock:
 - **Car glass too bright.** The interior shows through, but the reflection is warm and bright
   (window ~(139,112,80) against stock's (28,36,42)). Stock takes the same cube-reflection branch
   with the same bools. The reflection inputs need a step-by-step comparison against stock.
+- **Update (FX, later): fixed by turning both gamma switches on.** `REGPU_TEXTURE_GAMMA=1` +
+  `REGPU_RESOLVE_GAMMA=1` together (not texture gamma alone, which is what went too dark) bring
+  the festival to stock's look: mean luma 85 vs stock 87 (was 118), walls 28 vs 19 (was 59),
+  stddev 66 vs 74 (was 58). The plugin turns both on by default. The original notes follow.
 - **Contrast slightly lower** (menu luma stddev 53.7 against 59.2; same mean). Xenos gamma-signed
   fetches aren't applied by default. With them on (`REGPU_TEXTURE_GAMMA=1`) the image goes far
   too dark. The split modes show resolves carry all of it (mode 5); colour maps change nothing
