@@ -477,5 +477,21 @@ output edits (`probe.py`).
   capture log's `n` is ReGPU's expanded list length, not the guest index count.)
 - Stock's RenderDoc history shows that same 4878-index draw (event 3616) touching pixel 1050,50
   of its tile target with fragment depth 0.015 and failing depth there; ReGPU's fragment at the
-  same screen pixel has depth 0.087. Next: pin down which screen tile stock's events belong to
-  (window offset per pass) and compare the sheet's fragments at the same screen pixel.
+  same screen pixel has depth 0.087. (That turned out to be a different tile; see below.)
+- **Stock's tile passes mapped** (`run/rd-tu4-stock-rtv/toptile.txt`, from Xenia's xe_ndc_scale /
+  offset): in a full frame the scene runs in three passes on one 1280x512 EDRAM target: top tile
+  (screen rows 0-256, ndc y scale 1.0) from event 22422, rows 256-512 (scale 1.55) from 25080,
+  rows 512-720 (scale 3.46, 208-row viewport) from 33016. (The first captured frame starts after
+  its top tile, which is why the earlier history mixed tiles.)
+- **At the same screen pixel (1050,50), stock draws the sliver too** (`topfrag.txt`): its top
+  tile's sheet draw (event 23357, 4878 indices) writes *primitive 666*, ground colour, depth 0.043;
+  the 1058-index draw after it (primitive 351) fails depth, exactly as on ReGPU (33463, primitive
+  351). Stock's scene resolve (texture 14292 / 8952) holds the sliver's colour there.
+- **Stock removes it in post** (`later.txt`, `p37300.txt`): the final full-screen composite
+  (event 37300, no depth/stencil test) reads the scene (8952, which has the sliver), a 320x192 bloom
+  buffer (8976), a 640x360 R8G8B8A8 buffer (13513, a resolve at event 36753; it reads
+  0, 0.498, 0.498, 0 there) and a 16x16 table (9046), and writes sky (0.805, 0.871, 0.871) at that
+  pixel. So the shapes are geometry the game itself draws into the scene and then hides in
+  post-processing; on ReGPU that post step doesn't hide it.
+- Next: find ReGPU's equivalent composite, compare its four inputs at that pixel with stock's
+  (most likely the 640x360 buffer or how its resolve is produced), and fix the one that differs.
