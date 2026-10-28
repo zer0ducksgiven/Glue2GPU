@@ -318,8 +318,18 @@ output edits (`probe.py`).
     brighter and warmer than stock: (129,102,73) vs (16,26,36).
   - Also in the working tree: biased 2_10_10_10 resolves kept at 16-bit float (didn't fix the
     glass; more precise), and the `ps HASH @ANCHOR|STATEMENT` probe.
-- **Purple sky shapes (open):** moving objects drawn over the sky, last coloured by the sky/cloud
-  pass `299007422ef6aee0` (DXN cloud textures). The stock renderer shows no such shapes.
+- **Purple sky shapes (open, 2026-10-28):** flat purple polygons in the upper frame that move and
+  come and go between frames; stock shows none. Not found yet:
+  - Output edits of the sky/cloud pass `299007422ef6aee0` (the earlier single-pixel bisect hit)
+    don't change them, so that hit was the shapes moving during the bisect.
+  - A bisect that counts purple pixels over several shots (scratchpad `bisect_count.py`):
+    tinting the first 80 of 161 pixel shaders dropped the count 2433 → 383 once, but no smaller
+    group came close again. So either several shaders draw them, or the colour doesn't come from
+    a pixel shader's output (blending with a bad destination, or a stale or garbage texture
+    sampled by many shaders).
+  - Next: a deterministic single-frame method, e.g. a RenderDoc capture of ReGPU's own frame,
+    or ReGPU's frame dump with a per-draw skip, then the draw's vertex data. The shape and the
+    flicker suggest bad vertex positions in particles or streamers.
 
 ## Next steps
 
