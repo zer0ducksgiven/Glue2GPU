@@ -535,5 +535,13 @@ output edits (`probe.py`).
 - **Alpha rounding A/B on the FX** (`run/fx-alpha-ab`, both switches, 8 pairs): off, shapes in
   nearly every frame; on, about half, smaller, mostly at the stage confetti. Same as on this PC.
   Committed to ReGPU `rexglue-driver` (switches `REGPU_NO_RESOLVE_ALPHA2`, `REGPU_NO_ALPHA2`).
-  The rest likely comes from blending: the console rounds alpha to 2 bits after every blend into
-  that surface, we blend at full precision and round once at the resolve.
+  The rest isn't blended alpha: keeping blended draws from writing alpha on those surfaces
+  (a temporary test switch, `run/fx-blendalpha-ab`) left the shapes as they were.
+- **First-boot freeze fixed.** Cold cache on the FX, the plugin's old defaults: hangs at swap
+  ~950-1050 every time (`run/fx-cold-*`), also with small resolves always written back. With
+  `REGPU_ASYNC_SHADERS` alone it still waited 20 s on a pipeline and hung; with
+  `REGPU_ASYNC_SHADERS` + `REGPU_ASYNC_PIPELINES` it reaches free roam (30-34 fps,
+  `run/fx-cold-asyncall`). The plugin now turns both on (through a new
+  `regpu::driver::SetSwitch`: `REGPU_ASYNC_SHADERS` is read at library load, before the plugin's
+  environment writes), verified cold with no settings (`run/fx-cold-default2`). Risk to watch: a
+  one-off draw skipped while its shader builds stays missing (nothing visible in free roam).
