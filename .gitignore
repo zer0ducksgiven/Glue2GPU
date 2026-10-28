@@ -1,0 +1,8 @@
+# Clones, builds and game data stay out: only the plugin and the write-ups are this repo's.
+/thirdparty/
+/build/
+/sdk/
+/run/
+/fh1/
+*.iso
+tu*_00000000

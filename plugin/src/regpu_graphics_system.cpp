@@ -1,0 +1,225 @@
+// rexgpu-regpu against ReIGlue fh1-0.10.0.24-r2 (317216e) and ReGPU's rexglue-driver branch.
+#include "regpu_graphics_system.h"
+#include "stack_dump.h"
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <mutex>
+#include <thread>
+
+#include <rex/cvar.h>
+#include <rex/kernel/xboxkrnl/video.h>
+#include <rex/logging.h>
+#include <rex/system/function_dispatcher.h>
+#include <rex/system/kernel_state.h>
+#include <rex/system/mmio_handler.h>
+#include <rex/system/thread_state.h>
+#include <rex/system/xmemory.h>
+#include <rex/system/xthread.h>
+#include <rex/system/xvideo.h>
+
+#include <regpu/driver.h>
+#include <regpu/regpu.h>
+
+namespace glue2gpu
+{
+namespace
+{
+constexpr uint32_t kRegisterBase = 0x7FC80000;
+
+// ReGPU's Host takes plain function pointers, so its callbacks reach ReXGlue through these.
+rex::memory::Memory* g_memory = nullptr;
+rex::runtime::FunctionDispatcher* g_dispatcher = nullptr;
+rex::system::KernelState* g_kernel = nullptr;
+
+// ReGPU's threads (vblank interrupt, command processor) are guest threads: they need a
+// PPCContext, and the interrupt one calls the title's callback on it.
+std::mutex g_threadsMutex;
+std::vector<rex::system::object_ref<rex::system::XHostThread>> g_threads;
+
+std::atomic<bool> g_running{ false };
+
+uint32_t Alloc(bool physical, uint32_t size, uint32_t align)
+{
+    if (!physical)
+        return g_memory->SystemHeapAlloc(size, align);
+    // The 0xA0000000 view (64 KB pages), where ReGPU expects physical memory. As
+    // MmAllocatePhysicalMemoryEx does: whole pages, over the heap's whole range.
+    constexpr uint32_t kPage = 64 * 1024;
+    auto* heap = g_memory->LookupHeapByType(true, kPage);
+    const uint32_t base = heap->heap_base();
+    uint32_t address = 0;
+    if (!heap->AllocRange(base, base + heap->heap_size() - 1, (size + kPage - 1) & ~(kPage - 1),
+                          std::max(align, kPage),
+                          rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit,
+                          rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite,
+                          /*top_down=*/true, &address))
+    {
+        REXLOG_ERROR("regpu: physical alloc of {:#x} bytes (align {:#x}) failed", size, align);
+        return 0;
+    }
+    REXLOG_INFO("regpu: physical alloc {:#x} bytes at {:08X}", size, address);
+    return address;
+}
+
+void CreateThread(const char* name, void (*body)(PPCContext&))
+{
+    auto* thread = new rex::system::XHostThread(g_kernel, 128 * 1024, 0, [body]() {
+        body(*rex::system::XThread::GetCurrentThread()->thread_state()->context());
+        return 0;
+    });
+    thread->set_name(name);
+    thread->Create();
+    std::lock_guard lock(g_threadsMutex);
+    g_threads.emplace_back(thread);
+}
+
+uint32_t CurrentPcr()
+{
+    return rex::system::XThread::GetCurrentThread()->pcr_ptr();
+}
+
+// ReGPU sets r3/r4 (source, user data) and calls this between interruptLockAcquire/Release.
+// ExecuteInterrupt takes the dispatcher's global lock and sets the arguments itself, so the
+// lock hooks are empty. ReGPU writes the PCR's CurrentCpu itself; ReXGlue's own dispatch calls
+// XThread::SetActiveCpu (SPIKE.md, open question 4).
+void GuestCall(PPCContext& ctx, uint32_t address)
+{
+    auto* thread = rex::system::XThread::GetCurrentThread();
+    uint64_t args[] = { ctx.r3.u64, ctx.r4.u64 };
+    g_dispatcher->ExecuteInterrupt(thread->thread_state(), address, args, 2);
+}
+
+void InterruptLockAcquire(int) {}
+void InterruptLockRelease() {}
+
+// ReXGlue's VdQueryVideoMode reports the refresh rate the title paces itself by (FH1:
+// video_mode_refresh_rate, changed from its graphics menu while running), so ReGPU's vblank
+// follows it, as ReXGlue's own vsync thread does.
+void RefreshRateLoop()
+{
+    while (g_running)
+    {
+        rex::system::X_VIDEO_MODE mode;
+        rex::kernel::xboxkrnl::VdQueryVideoMode(&mode);
+        regpu::driver::SetRefreshRate(std::max(1.0, double(float(mode.refresh_rate))));
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+}
+} // namespace
+
+ReGpuGraphicsSystem::~ReGpuGraphicsSystem() { Shutdown(); }
+
+X_STATUS ReGpuGraphicsSystem::SetupPresentation(rex::ui::WindowedAppContext*)
+{
+    // ReGPU creates its window and device in regpu::Start(), which needs Host filled, so the real
+    // work waits for SetupGuestGpu. TODO(4a): adopt ReXGlue's window instead.
+    presentation_ = true;
+    return X_STATUS_SUCCESS;
+}
+
+void ReGpuGraphicsSystem::FillHost()
+{
+    regpu::Host& host = regpu::GetHost();
+    host.base = g_memory->virtual_membase();
+    // ReIGlue keeps one 4.5 GB file mapping for all of guest memory (physical at file offset
+    // 0x100000000) and doesn't expose its handle, so ReGPU opens the 0xA0000000 view by address
+    // (OpenExistingHeapFromAddress1), or falls back to copying.
+    host.physicalSection = nullptr;
+    host.alloc = Alloc;
+    host.createThread = CreateThread;
+    host.currentPcr = CurrentPcr;
+    host.guestCall = GuestCall;
+    host.interruptLockAcquire = InterruptLockAcquire;
+    host.interruptLockRelease = InterruptLockRelease;
+    host.logThreadStacks = LogThreadStacks;
+}
+
+X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* dispatcher,
+                                            rex::system::KernelState* kernel_state)
+{
+    g_dispatcher = dispatcher;
+    g_memory = dispatcher->memory();
+    g_kernel = kernel_state;
+    FillHost();
+
+    regpu::Config& config = regpu::GetConfig();
+    // The frame cap follows the host's settings (FH1: frame_rate, vsync), as its own presenter
+    // does. TODO: resolution, msaa, present_effect.
+    if (const std::string v = rex::cvar::GetFlagByName("vsync"); !v.empty())
+        config.vsync = v == "true" || v == "1";
+    if (const std::string fps = rex::cvar::GetFlagByName("frame_rate"); !fps.empty())
+        config.maxFps = std::max(30, std::atoi(fps.c_str()));
+    // ReGPU draws the scene at this size when no upscaler is on; ReXGlue's default is the
+    // console's 720p (resolution_scale=1). GLUE2GPU_RES=WxH overrides it.
+    config.width = 1280;
+    config.height = 720;
+    if (const char* res = std::getenv("GLUE2GPU_RES"))
+        std::sscanf(res, "%ux%u", &config.width, &config.height);
+    config.windowTitle = L"Forza Horizon (ReGPU)";
+    // ReXGlue calls InitializeShaderStorage after this, so the cache root comes from its setting.
+    if (cacheRoot_.empty())
+        if (const std::string root = rex::cvar::GetFlagByName("cache_root"); !root.empty())
+            cacheRoot_ = root;
+    if (!cacheRoot_.empty())
+        config.userDir = cacheRoot_ / "regpu";
+
+    // Same range, mask and size as ReXGlue's own GraphicsSystem.
+    g_memory->AddVirtualMappedRange(
+        kRegisterBase, 0xFFFF0000, 0x0000FFFF, this,
+        reinterpret_cast<rex::runtime::MMIOReadCallback>(ReadRegisterThunk),
+        reinterpret_cast<rex::runtime::MMIOWriteCallback>(WriteRegisterThunk));
+
+    regpu::Start();
+    started_ = true;
+    g_running = true;
+    std::thread(RefreshRateLoop).detach();
+    return X_STATUS_SUCCESS;
+}
+
+uint32_t ReGpuGraphicsSystem::ReadRegisterThunk(void*, ReGpuGraphicsSystem*, uint32_t addr)
+{
+    return regpu::driver::ReadRegister((addr & 0xFFFF) >> 2);
+}
+
+void ReGpuGraphicsSystem::WriteRegisterThunk(void*, ReGpuGraphicsSystem*, uint32_t addr,
+                                             uint32_t value)
+{
+    regpu::driver::WriteRegister((addr & 0xFFFF) >> 2, value);
+}
+
+void ReGpuGraphicsSystem::SetInterruptCallback(uint32_t callback, uint32_t user_data)
+{
+    regpu::driver::SetInterruptCallback(callback, user_data);
+}
+
+void ReGpuGraphicsSystem::InitializeRingBuffer(uint32_t ptr, uint32_t size_log2)
+{
+    regpu::driver::InitializeRingBuffer(ptr, size_log2);
+}
+
+void ReGpuGraphicsSystem::EnableReadPointerWriteBack(uint32_t ptr, uint32_t block_size_log2)
+{
+    regpu::driver::EnableReadPointerWriteBack(ptr, block_size_log2);
+}
+
+void ReGpuGraphicsSystem::InitializeShaderStorage(const std::filesystem::path& cache_root,
+                                                  uint32_t, bool)
+{
+    cacheRoot_ = cache_root;
+}
+
+void ReGpuGraphicsSystem::Shutdown()
+{
+    if (!started_)
+        return;
+    started_ = false;
+    g_running = false;
+    regpu::SaveCaches();
+    // ReGPU has no Stop(); its threads run until process exit.
+}
+} // namespace glue2gpu
