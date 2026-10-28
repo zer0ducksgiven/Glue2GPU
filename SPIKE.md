@@ -545,3 +545,10 @@ output edits (`probe.py`).
   `regpu::driver::SetSwitch`: `REGPU_ASYNC_SHADERS` is read at library load, before the plugin's
   environment writes), verified cold with no settings (`run/fx-cold-default2`). Risk to watch: a
   one-off draw skipped while its shader builds stays missing (nothing visible in free roam).
+- **Photo mode's dark quadrant reproduced on the FX** (`run/fx-photo8`, `fx-photo9`): the scripted
+  route is START, DOWN (one press moves two items), A, A at 125-134 s (`fxdrive.ps1 -PressExtra`).
+  The quadrant right and below the screen centre lacks the haze the other three have. Not
+  `REGPU_RESOLVE_IMAGE_BASE` (A/B, unchanged) and not tile merging (`REGPU_NO_TILE_MERGE`, unchanged).
+  Next: a capture in photo mode to find the pass that covers three quadrants only.
+- Note for the FX: `regpuctl press` does nothing under ReXGlue (ReGPU's debug pad isn't wired);
+  input has to go through `FORZA_AUTOPRESS`.
