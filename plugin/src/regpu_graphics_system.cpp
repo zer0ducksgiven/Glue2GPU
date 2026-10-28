@@ -11,6 +11,9 @@
 #include <mutex>
 #include <thread>
 
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
 #include <rex/cvar.h>
 #include <rex/kernel/xboxkrnl/video.h>
 #include <rex/logging.h>
@@ -150,8 +153,14 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     regpu::Config& config = regpu::GetConfig();
     // The frame cap follows the host's settings (FH1: frame_rate, vsync), as its own presenter
     // does. TODO: resolution, msaa, present_effect.
+    // ReXGlue's own presenter doesn't wait for the display (FH1 has no vsync setting): the title's
+    // frame cap limits it. ReGPU's vsync would cap it at the display's rate instead.
+    // GLUE2GPU_VSYNC=1, or a "vsync" setting where the host has one, turns it back on.
+    config.vsync = false;
     if (const std::string v = rex::cvar::GetFlagByName("vsync"); !v.empty())
         config.vsync = v == "true" || v == "1";
+    if (const char* v = std::getenv("GLUE2GPU_VSYNC"))
+        config.vsync = *v == '1';
     if (const std::string fps = rex::cvar::GetFlagByName("frame_rate"); !fps.empty())
         config.maxFps = std::max(30, std::atoi(fps.c_str()));
     // ReGPU draws the scene at this size when no upscaler is on; ReXGlue's default is the
