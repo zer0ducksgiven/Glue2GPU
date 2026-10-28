@@ -56,8 +56,22 @@ Still different from stock:
   that region). The 1024x1024 atlas is drawn as a tall pass: each frame the full-atlas cascade
   plus one of the four 512x512 quadrant cascades in rotation (TR, BL, BR, TL), each quadrant
   resolved to its own address; casters use the whole-atlas scissor and the quadrant's viewport.
-  Next: on stock, which texture the cascade-2 box samples and what is in it, to see whether
-  ReGPU binds the wrong resolve for cascade 2 or its copy is taken from the wrong place.
+  **Stock compared** (`stockmask.txt`, `cmpmaps.txt`, `maps.png`): the mask pass is the same on
+  both, three near-cascade boxes (no blend, each on its own 1024x1024 map: guest 1D295000,
+  1CE95000, 1CA95000) then 8 MIN boxes on the rotating quadrant atlas (1D6C5000). The atlas and
+  the first and third near maps match stock. **The second near map (1CE95000) differs**: stock
+  6831 has casters in its top-left 520 region, ReGPU 4535 has the region empty. ReGPU's frame
+  trace (`run/sh-cap2/capture.log`): after the full-atlas resolve the game draws a 40-px strip
+  clear (pitch 1040) and a depth clear through a 4x MSAA view of the same EDRAM (pitch 520, rect
+  240x256, depthctl 0x76: z write, always), then resolves 0..520 to 1CE95000 with no casters in
+  between. ReGPU applies that clear to the atlas's top-left 480x512, so the map is empty and the
+  wall is lit. Stock keeps the casters there (from the full-atlas cascade). Experiment (temporary
+  switch, reverted): skipping every 4x-view depth clear brings the wall to 18.7 (stock 16.9) but
+  over-darkens lit ground (22.7 vs 45) and leaves a seam on the car, because the same clear pair
+  before the 1CA95000 map (followed by its casters) is needed. Open: how the hardware (and Xenia)
+  treat a depth write through a 4x view of a 1x surface: likely not the plain 2x2-per-pixel
+  overwrite ReGPU does. Next: read Xenia's render-target cache for MSAA-mismatched depth views
+  (ReIGlue src/graphics/d3d12/render_target_cache.cpp, ownership transfer), and match it.
 - **Festival ground and walls brighter than stock** (wall 51 against 14). The sun-shadow mask
   matches stock at those points (ground 255/255 in both). A broken shadow atlas was fixed
   (`36e90b4`, opt-in `REGPU_RESOLVE_IMAGE_BASE`, set by the plugin), but it didn't change this.
