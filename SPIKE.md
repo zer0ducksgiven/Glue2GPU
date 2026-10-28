@@ -527,3 +527,13 @@ output edits (`probe.py`).
   on the GPU), while early draws waited ~30 s on first-boot shader compiles. With
   `GLUE2GPU_WRITEBACK=all` it got into the world but crawled at 1 fps on first-boot pipeline
   builds (the GTX 970 driver is slow to build them).
+- **With caches warm, ReGPU runs on the FX**: default write-back policy, 33-34 fps in free roam
+  (`run/fx-some-warm`), stock 30 fps (flat, apparently capped). So the freeze was first-boot only
+  (shader and pipeline builds stalling the title), and `GLUE2GPU_WRITEBACK=all` is far too slow
+  there (1 fps). First boot on a slow PC is still a problem for anyone else: a precompiled cache
+  or a less blocking first boot is needed.
+- **Alpha rounding A/B on the FX** (`run/fx-alpha-ab`, both switches, 8 pairs): off, shapes in
+  nearly every frame; on, about half, smaller, mostly at the stage confetti. Same as on this PC.
+  Committed to ReGPU `rexglue-driver` (switches `REGPU_NO_RESOLVE_ALPHA2`, `REGPU_NO_ALPHA2`).
+  The rest likely comes from blending: the console rounds alpha to 2 bits after every blend into
+  that surface, we blend at full precision and round once at the resolve.
