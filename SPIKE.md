@@ -447,6 +447,12 @@ output edits (`probe.py`).
   CLIP_DISABLE + DX clip space; an implementation was tried and reverted), in-place index reads
   (`REGPU_NO_DIRECT_INDEX=1`), in-place vertex reads (`REGPU_NO_DIRECT_FETCH=1`), and early fences
   (unset: `run/nofence-sky2`). Note `REGPU_EARLY_FENCES=0` still turns them on (presence check).
-- Next: read that draw's vertex fetch constant (slot 95, which shares dwords with texture fetch
-  constant 31) and the vertices of primitive 666 in guest memory at draw time, against what
-  stock fetches for the same draw.
+- That draw's vertex fetch constant (slot 95) is sane: type 3, plausible physical addresses
+  (`12D222E0`, `12C78D80`...), sizes 1-97 KB, stable across frames (`run/vfetch-trace`).
+- Also ruled out: vertex fetch bounds (`REGPU_NO_FETCH_BOUNDS=1`, `run/bounds-test`), and the Xenos
+  vertex index handling Xenia does and ReGPU doesn't (24-bit mask after VGT_INDX_OFFSET, clamp to
+  VGT_MIN/MAX_VTX_INDX, from dxbc_translator.cpp): implemented, A/B'd live (`run/clamp-test`), no
+  change, reverted.
+- The shapes always appear next to the stage confetti and move like it. Next: dump primitive
+  666's three indices and vertex data from guest memory at draw time on ReGPU and on stock
+  (ReXGlue's D3D12 backend, via RenderDoc on the stock build), and see which one differs.
