@@ -467,6 +467,15 @@ output edits (`probe.py`).
   history at that pixel also shows a lower tile's ground at depth ~0.02, failing depth.)
 - More ruled out: depth clip following CLIP_DISABLE as Xenia does (tried, no change, reverted),
   tile merging (`REGPU_NO_TILE_MERGE=1`, `run/tilemerge-test`, still there). ReGPU skips no draws.
-- Open: whether stock submits this sheet at all in a frame where ReGPU shows it (one stock frame
-  may simply catch a moment without it). Next idea: Xenia's own GPU trace (`D:\xenia-ref\gputrace`)
-  or a per-draw command dump on both sides at the same frame, to diff the guest command stream.
+- **Guest draw streams diffed** (`run/dt-stock`, `run/dt-regpu`: every triangle-strip DRAW_INDX
+  logged at the PM4 packet on both sides, temporary trace since reverted): the game submits the
+  same strip draws at the same per-frame rate on stock and ReGPU (no index count / vertex-buffer
+  size pair differs by more than 0.15 draws a frame; addresses differ between runs, as the game's
+  allocations do). The sheet is a 4878-index strip (plus a 142-index one) on a 21360-dword vertex
+  buffer, submitted once a frame on both, never viz-query-conditional. So **stock submits that
+  sheet too**; the difference is in how it is rendered, not what the game sends. (Note: the
+  capture log's `n` is ReGPU's expanded list length, not the guest index count.)
+- Stock's RenderDoc history shows that same 4878-index draw (event 3616) touching pixel 1050,50
+  of its tile target with fragment depth 0.015 and failing depth there; ReGPU's fragment at the
+  same screen pixel has depth 0.087. Next: pin down which screen tile stock's events belong to
+  (window offset per pass) and compare the sheet's fragments at the same screen pixel.
