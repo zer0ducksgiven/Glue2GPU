@@ -56,7 +56,8 @@ Still different from stock:
   base game): TU4 rewrites large vertex ranges every frame, which the early-fence change tracking
   copies. Without early fences the copies go away, but fence latency holds it at ~60 instead.
   Closing this needs page-level write tracking of guest memory (what stock does), a ReGPU design
-  change. The base game is unaffected (94.8 / 91.0 with the write-back policy).
+  change. The base game is unaffected (94.8 / 91.0 with the write-back policy). A 10-minute TU4
+  drive soak (`run/tu4-soak`): no crash, freeze or stall over 1 s; 67.3 fps average, 58.8 minimum.
 - TU4 on ReGPU renders correctly overall (`run/tu4_compare.png`). As in the base game, sun
   shadows on the ground are much weaker than stock's crisp tower shadows. ReGPU also implements no
   polygon offset (`PA_SU_POLY_OFFSET_*`), though missing depth bias would add shadow, not remove
