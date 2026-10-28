@@ -8,9 +8,12 @@ plugin (early fences on). fps averaged over 60–100 s standing and 105–150 s 
 
 | Resolution | Stock standing / driving | ReGPU standing / driving | GPU busy (stock / ReGPU) |
 |---|---|---|---|
-| 1280×720 | 92.9 / 92.6 | 92.7 / 92.0 | 75% / 72% |
-| 2560×1440 | 68.3 / 66.8 | **89.3 / 89.2** (+31%) | 96% / 98% |
-| 3840×2160 | 36.0 / 35.5 | **83.5 / 79.7** (2.3×) | 98% / 100% |
+| 1280×720 | 97.4 / 97.1 | 95.0 / 95.9 | 78% / 71% |
+| 2560×1440 | 67.4 / 66.3 | **91.1 / 92.5** (+37%) | 96% / 96% |
+| 3840×2160 | 36.3 / 35.3 | **79.1 / 86.1** (2.2–2.4×) | 99% / 100% |
+
+(Final runs with every fix in, `run/final-*`. No crashes in any run. A 20-minute ReGPU drive soak,
+`run/soak`, averaged 102 fps with a minimum of 84.5, and had no hang or crash.)
 
 At 720p both renderers are limited by the game's CPU side. Once the renderer is the limit, ReGPU is
 much faster. The 4K screenshots are both real 3840×2160 (`run/k4_detail.png`).
@@ -37,8 +40,12 @@ Still different from stock:
   fetches aren't applied by default. With them on (`REGPU_TEXTURE_GAMMA=1`) the image goes far
   too dark. The split modes show resolves carry all of it (mode 5); colour maps change nothing
   (mode 4).
-- **Shadowed areas in the festival brighter than stock** (wall 51 against 14); the menu scene
-  matches closely. Not traced yet.
+- **Festival ground and walls brighter than stock** (wall 51 against 14). The sun-shadow mask
+  matches stock at those points (ground 255/255 in both). A broken shadow atlas was fixed
+  (`36e90b4`, opt-in `REGPU_RESOLVE_IMAGE_BASE`, set by the plugin), but it didn't change this.
+  Likely the same as the contrast item: FH1's final composite reads a plain-8888 resolve
+  (`1D728000`) with gamma signs (`sg3F`), which on the hardware darkens it; stock is still the
+  brighter one. Needs a matching stock capture of that pass.
 - FM2 wasn't re-run: it keeps its renderer in-tree, so tonight's ReGPU branch can't be tested
   there without porting. `90accac` changes 8888 clears to Xenia's channel order (red in the low
   byte), and FM2 could see that.
