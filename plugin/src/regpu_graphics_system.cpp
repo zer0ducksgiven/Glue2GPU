@@ -47,6 +47,23 @@ std::vector<rex::system::object_ref<rex::system::XHostThread>> g_threads;
 
 std::atomic<bool> g_running{ false };
 
+// ReGPU presents in its own window, so ReXGlue's window never has focus and its input system
+// reads pads as idle. Patch 0392's export lets pads work without that focus (looked up at run
+// time: a runtime without it keeps the old behaviour).
+void EnablePadsWithoutFocus()
+{
+    using Fn = void (*)(int);
+    Fn fn = reinterpret_cast<Fn>(GetProcAddress(GetModuleHandleW(nullptr), "rexinput_SetPadsWithoutFocus"));
+    for (const wchar_t* dll : { L"rexruntime.dll", L"rex_runtime.dll", L"rexglue.dll" })
+        if (!fn)
+            if (HMODULE m = GetModuleHandleW(dll))
+                fn = reinterpret_cast<Fn>(GetProcAddress(m, "rexinput_SetPadsWithoutFocus"));
+    if (fn)
+        fn(1);
+    else
+        REXLOG_WARN("glue2gpu: rexinput_SetPadsWithoutFocus not found; pads need ReXGlue's window focused");
+}
+
 uint32_t Alloc(bool physical, uint32_t size, uint32_t align)
 {
     if (!physical)
@@ -241,6 +258,7 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     // REGPU_CUBE_Y_SWAP: FH1's live cube reflections have their +Y/-Y faces exchanged otherwise.
     if (!std::getenv("REGPU_CUBE_Y_SWAP"))
         _putenv_s("REGPU_CUBE_Y_SWAP", "1");
+    EnablePadsWithoutFocus();
     // REGPU_RESOLVE_IMAGE_BASE: FH1's shadow atlas resolves one quadrant at a time into the image's
     // own base; otherwise the quadrants below the first row land elsewhere and the world has no
     // sun shadows.
