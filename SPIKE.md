@@ -561,6 +561,14 @@ output edits (`probe.py`).
   route is START, DOWN (one press moves two items), A, A at 125-134 s (`fxdrive.ps1 -PressExtra`).
   The quadrant right and below the screen centre lacks the haze the other three have. Not
   `REGPU_RESOLVE_IMAGE_BASE` (A/B, unchanged) and not tile merging (`REGPU_NO_TILE_MERGE`, unchanged).
-  Next: a capture in photo mode to find the pass that covers three quadrants only.
+  **Fixed.** Photo mode freezes a scene image when it opens (built during the "PLEASE WAIT"
+  frames, then copied in every frame by a 48-vertex strip draw), so A/B switches flipped after
+  entry never changed it (the earlier A/Bs were invalid). RenderDoc on the FX
+  (`renderdoc` copied there, task `FH1RD`, captures `run/rd-photo/entry2.rdc`) showed the build:
+  a full-screen pass into the scene surface, then a 640x360 pass (scissor 0,0-640,360) into the
+  *same* host texture. ReGPU keyed colour surfaces by EDRAM base only; in EDRAM a 640-pitch
+  surface at that base lays its tiles out differently and doesn't overwrite the 1280 scene's
+  top-left quarter. Colour surfaces are now keyed by base and pitch (`REGPU_SURFACE_BY_BASE=1`:
+  as before). FX: photo mode even (`run/fx-photo-pitch`), free roam unchanged at 33 fps.
 - Note for the FX: `regpuctl press` does nothing under ReXGlue (ReGPU's debug pad isn't wired);
   input has to go through `FORZA_AUTOPRESS`.
