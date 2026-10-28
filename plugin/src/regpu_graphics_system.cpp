@@ -255,9 +255,8 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
 
     // ReGPU switches this host needs that are off for XenonRecomp ports (each can still be set
     // to 0 in the environment).
-    // REGPU_CUBE_Y_SWAP: FH1's live cube reflections have their +Y/-Y faces exchanged otherwise.
-    if (!std::getenv("REGPU_CUBE_Y_SWAP"))
-        _putenv_s("REGPU_CUBE_Y_SWAP", "1");
+    // (REGPU_CUBE_Y_SWAP is no longer set: with surfaces keyed by pitch and homogeneous depth the
+    // cube faces come out right, and the swap made the car glass reflect the ground.)
     EnablePadsWithoutFocus();
     // REGPU_RESOLVE_IMAGE_BASE: FH1's shadow atlas resolves one quadrant at a time into the image's
     // own base; otherwise the quadrants below the first row land elsewhere and the world has no
