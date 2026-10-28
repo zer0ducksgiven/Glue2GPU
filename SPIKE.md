@@ -45,6 +45,19 @@ Still different from stock:
   fetches aren't applied by default. With them on (`REGPU_TEXTURE_GAMMA=1`) the image goes far
   too dark. The split modes show resolves carry all of it (mode 5); colour maps change nothing
   (mode 4).
+- **Weak sun shadows: where it stands (captures `run/rd-shadow`, traces `run/sh-*`).** Lit ground
+  matches stock; shaded surfaces are ~10 levels too bright (stand wall 27 vs 17). Not the atlas
+  resolution (1440p same), not today's depth/surface/tile-merge switches (live A/B, unchanged).
+  The wall shader's inputs match stock except the screen-space sun-shadow mask: stock 0.45 (in
+  shadow), ReGPU 1.0, and ReGPU's whole mask is white. The mask is built by cascade boxes (MIN
+  blend, stencil == 0 then increment: the first box containing the pixel wins). At the wall the
+  cascade-2 box wins (correctly: box depth 0.012 vs scene 0.042) and its shadow map lookup reads
+  1.0 everywhere (texture 4535, a 520x520 resolve of the atlas taken right after a depth clear of
+  that region). The 1024x1024 atlas is drawn as a tall pass: each frame the full-atlas cascade
+  plus one of the four 512x512 quadrant cascades in rotation (TR, BL, BR, TL), each quadrant
+  resolved to its own address; casters use the whole-atlas scissor and the quadrant's viewport.
+  Next: on stock, which texture the cascade-2 box samples and what is in it, to see whether
+  ReGPU binds the wrong resolve for cascade 2 or its copy is taken from the wrong place.
 - **Festival ground and walls brighter than stock** (wall 51 against 14). The sun-shadow mask
   matches stock at those points (ground 255/255 in both). A broken shadow atlas was fixed
   (`36e90b4`, opt-in `REGPU_RESOLVE_IMAGE_BASE`, set by the plugin), but it didn't change this.
