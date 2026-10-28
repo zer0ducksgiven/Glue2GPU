@@ -169,6 +169,16 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     config.height = 720;
     if (const char* res = std::getenv("GLUE2GPU_RES"))
         std::sscanf(res, "%ux%u", &config.width, &config.height);
+    // GLUE2GPU_UPSCALER=fsr1 (ReGPU's FSR 1; fsr3/dlss need ReGPU built with them) and
+    // GLUE2GPU_QUALITY=0-4 (native, quality, balanced, performance, ultra performance).
+    if (const char* up = std::getenv("GLUE2GPU_UPSCALER"))
+    {
+        const std::string u = up;
+        config.upscaler = u == "fsr1" ? regpu::Config::Upscaler::Fsr1 : u == "fsr3" ? regpu::Config::Upscaler::Fsr3
+                        : u == "dlss" ? regpu::Config::Upscaler::Dlss : regpu::Config::Upscaler::Off;
+    }
+    if (const char* q = std::getenv("GLUE2GPU_QUALITY"))
+        config.quality = uint32_t(std::atoi(q));
     config.windowTitle = L"Forza Horizon (ReGPU)";
     // ReXGlue calls InitializeShaderStorage after this, so the cache root comes from its setting.
     if (cacheRoot_.empty())
