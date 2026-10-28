@@ -10,6 +10,7 @@
 #include <string>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -97,6 +98,46 @@ void GuestCall(PPCContext& ctx, uint32_t address)
     g_dispatcher->ExecuteInterrupt(thread->thread_state(), address, args, 2);
 }
 
+// GLUE2GPU_WRITEBACK: which resolves are also written to guest memory, for titles that read them
+// on the CPU. "some" (the default, as stock ReXGlue's readback_resolve=some): an image the first
+// time it is resolved, and again after 60 frames without it; "all" (every resolve, deferred: ~4 fps
+// in FH1), "now" (every one at once), "none". FH1 TU4's render thread waits on (or reads a null
+// from) a resolved image otherwise.
+std::atomic<uint64_t> g_swapCount{ 0 };
+regpu::Writeback ResolveWriteback(const regpu::ResolveCopy& copy)
+{
+    static const std::string mode = std::getenv("GLUE2GPU_WRITEBACK") ? std::getenv("GLUE2GPU_WRITEBACK") : "some";
+    regpu::Writeback w;
+    if (mode == "none")
+        return w;
+    if (mode == "some")
+    {
+        static std::mutex mutex;
+        static std::unordered_map<uint64_t, uint64_t> lastSeen; // image -> swap of its last resolve
+        const uint64_t key = uint64_t(copy.base) << 32 ^ uint64_t(copy.width) << 18 ^ uint64_t(copy.height) << 6 ^ copy.format ^ (copy.depth ? 1ull << 63 : 0);
+        const uint64_t now = g_swapCount.load(std::memory_order_relaxed);
+        std::lock_guard lock(mutex);
+        auto [it, fresh] = lastSeen.try_emplace(key, now);
+        const bool stale = !fresh && now - it->second > 60;
+        it->second = now;
+        if (!fresh && !stale)
+            return w;
+    }
+    w.mode = mode == "now" ? regpu::Writeback::Mode::Now : regpu::Writeback::Mode::Deferred;
+    // Every 600 frames: how many were asked for, and the biggest.
+    static std::atomic<uint64_t> requested{ 0 }, lastLog{ 0 };
+    static std::atomic<uint32_t> biggest{ 0 };
+    requested++;
+    if (copy.width * copy.height > biggest.load())
+        biggest = copy.width * copy.height;
+    if (const uint64_t now = g_swapCount.load(); now >= lastLog + 600)
+    {
+        lastLog = now;
+        REXLOG_INFO("regpu: {} resolve write-backs in the last 600 frames (biggest {} pixels)", requested.exchange(0), biggest.exchange(0));
+    }
+    return w;
+}
+
 void InterruptLockAcquire(int) {}
 void InterruptLockRelease() {}
 
@@ -140,6 +181,8 @@ void ReGpuGraphicsSystem::FillHost()
     host.interruptLockAcquire = InterruptLockAcquire;
     host.interruptLockRelease = InterruptLockRelease;
     host.logThreadStacks = LogThreadStacks;
+    host.resolveWriteback = ResolveWriteback;
+    host.onSwap = [](uint64_t frame) { g_swapCount.store(frame, std::memory_order_relaxed); };
 }
 
 X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* dispatcher,

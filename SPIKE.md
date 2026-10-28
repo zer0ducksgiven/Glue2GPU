@@ -46,6 +46,19 @@ Still different from stock:
   Likely the same as the contrast item: FH1's final composite reads a plain-8888 resolve
   (`1D728000`) with gamma signs (`sg3F`), which on the hardware darkens it; stock is still the
   brighter one. Needs a matching stock capture of that pass.
+- **Title Update 4** (the user's `tu00000007_00000000`, 0.0.4.7) builds with FH1's TU4 hints and
+  runs on stock at 93.8 / 92.5 fps. On ReGPU it first froze entering the world, or crashed on the
+  render thread with a null read at the same code (`8249E108`). The game reads resolved images on
+  the CPU. The plugin now implements `Host::resolveWriteback` with stock's `readback_resolve=some`
+  policy (an image the first time it's resolved, and again after 60 unused frames;
+  `GLUE2GPU_WRITEBACK=some|all|now|none`). With it TU4 runs without freeze or crash, but at
+  **60.8 / 58.9 fps**. The cost is ReGPU's vertex-fetch path (~7–8.5 ms/frame against ~0.7 on the
+  base game): TU4 rewrites large vertex ranges every frame, which the early-fence change tracking
+  copies. Without early fences the copies go away, but fence latency holds it at ~60 instead.
+  Closing this needs page-level write tracking of guest memory (what stock does), a ReGPU design
+  change. The base game is unaffected (94.8 / 91.0 with the write-back policy).
+- **The base-game freeze** from earlier is very likely the same thing (same code, same point,
+  intermittent there). The write-back policy covers both builds.
 - FM2 wasn't re-run: it keeps its renderer in-tree, so tonight's ReGPU branch can't be tested
   there without porting. `90accac` changes 8888 clears to Xenia's channel order (red in the low
   byte), and FM2 could see that.
