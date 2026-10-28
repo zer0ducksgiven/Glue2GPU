@@ -290,6 +290,23 @@ measured. Drive test from the save, early fences on, debug server off. fps avera
 - What limits ReGPU in FH1 now is the CPU side: ReGPU's draw path (~7.2–7.8 ms per frame) plus
   the CP and guest.
 
+## Visual bugs (2026-10-28)
+
+Found by binary search over tinted pixel shaders (scratchpad `bisect_ps.py`), then live
+output edits (`probe.py`).
+- **Fixed (ReGPU `efb0787`):** Xenos `_AS_16_16_16_16` texture formats (50–56)
+  weren't recognised. They store their base format's bytes, so `TextureFetch::Format()` now maps
+  them to the base. This restored the HUD (speedometer ring, icons, minimap pin), the car badge
+  and plate detail, the ground textures, and removed the scene-wide blur
+  (`run/format_fix_compare.png`).
+- **Green glass (open):** the glass pixel shader `d46f6f62d4f15ffb` refracts the scene resolve
+  at `1C4E1000` (2_10_10_10). Its colour term `r1` is green. Before the fix, the car-interior
+  region of that resolve was solid magenta; after it, the interior shows through with a green
+  tint. Next: check how ReGPU resolves to and samples 2_10_10_10, which it has no texture decoder
+  for, so only the resolve path covers it.
+- **Purple sky shapes (open):** moving objects drawn over the sky, last coloured by the sky/cloud
+  pass `299007422ef6aee0` (DXN cloud textures). The stock renderer shows no such shapes.
+
 ## Next steps
 
 1. Build FH1 (`forza-recomp`) against `sdk/reiglue` with the user's game copy. Record the
