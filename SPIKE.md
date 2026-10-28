@@ -33,6 +33,7 @@ Comparisons: `run/format_fix_compare.png`, `run/cube_fix_compare.png`,
 `run/clear_fix_compare.png`, `run/pack_compare.png`, `run/menu_compare.png`.
 
 Still different from stock:
+- **Update (FX): car glass fixed.** The plugin's REGPU_CUBE_Y_SWAP default had become wrong after the pitch and depth fixes; dropping it gives rear-window (35,47,59) against stock (30,38,44), was (106,80,56).
 - **Car glass too bright.** The interior shows through, but the reflection is warm and bright
   (window ~(139,112,80) against stock's (28,36,42)). Stock takes the same cube-reflection branch
   with the same bools. The reflection inputs need a step-by-step comparison against stock.
