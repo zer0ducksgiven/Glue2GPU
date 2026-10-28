@@ -16,6 +16,8 @@
 #include <windows.h>
 
 #include <rex/cvar.h>
+#include <rex/runtime.h>
+#include <rex/ui/window.h>
 #include <rex/kernel/xboxkrnl/video.h>
 #include <rex/logging.h>
 #include <rex/system/function_dispatcher.h>
@@ -240,6 +242,14 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     if (const char* q = std::getenv("GLUE2GPU_QUALITY"))
         config.quality = uint32_t(std::atoi(q));
     config.windowTitle = L"Forza Horizon (ReGPU)";
+    // ReXGlue has already opened its game window (and keeps its input, focus, closing and
+    // fullscreen handling on it); ReGPU presents there instead of opening a second one, which left
+    // ReXGlue's black and empty. GLUE2GPU_OWN_WINDOW=1: ReGPU's own window, as before.
+    if (!std::getenv("GLUE2GPU_OWN_WINDOW"))
+        if (auto* runtime = rex::Runtime::instance(); runtime && runtime->display_window())
+            // (The swap chain stays the output size and is stretched to the window. Same frame rate
+            // as ReGPU's own window in a back-to-back test.)
+            config.hostWindow = runtime->display_window()->GetNativeWindowHandle();
     // ReXGlue calls InitializeShaderStorage after this, so the cache root comes from its setting.
     if (cacheRoot_.empty())
         if (const std::string root = rex::cvar::GetFlagByName("cache_root"); !root.empty())
