@@ -264,6 +264,14 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     // sun shadows.
     if (!std::getenv("REGPU_RESOLVE_IMAGE_BASE"))
         _putenv_s("REGPU_RESOLVE_IMAGE_BASE", "1");
+    // REGPU_ASYNC_SHADERS, REGPU_ASYNC_PIPELINES: a draw whose shaders or pipeline are still building
+    // is skipped instead of waited for. On a first boot on a slow PC (the FX-8350 + GTX 970) the
+    // waits held the command processor for tens of seconds while FH1 loaded the world, and the title
+    // never recovered (no VdSwap again); with both, it reaches free roam.
+    // (REGPU_ASYNC_SHADERS is read when ReGPU loads, before this runs: set through the driver.)
+    for (const char* name : { "REGPU_ASYNC_SHADERS", "REGPU_ASYNC_PIPELINES" })
+        if (!std::getenv(name))
+            regpu::driver::SetSwitch(name, true);
 
     regpu::Start();
     started_ = true;
