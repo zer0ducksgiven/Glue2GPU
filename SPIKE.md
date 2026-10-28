@@ -77,7 +77,15 @@ Still different from stock:
   ReGPU now records each depth base's native layout and scales such rectangles
   (`REGPU_NO_DEPTH_VIEW_SCALE=1`: as before). Stand wall 26.9 -> 21.8 (stock 16.9), sunlit ground
   unchanged. The car's own shadow beside it is still lighter than stock (54.8 vs 35.8): a separate
-  map. (The earlier note follows:) the same clear pair
+  map. **Car shadow fixed:** the car body was missing from the near cascade (1D295000). Its
+  casters (ps 686394d59122cfc1) sample slot 0, whose fetch constant the game leaves unbound (type
+  0, `[0 0 0 06280000 C03 18]`); ReGPU kept the alpha test in depth-only passes for any draw whose
+  pixel shader samples a texture (an FM2 fix), and the unbound slot reads 0, so every pixel was
+  discarded. Xenia doesn't run the pixel shader in depth-only mode at all. An unbound slot no
+  longer counts (`REGPU_DEPTH_ALPHATEST_EMPTY=1`: as before). Live A/B while driving
+  (`run/car-fix2`): the map holds the whole car with the fix and only the spoiler without; the car
+  shadow on the ground now matches stock's. In photo mode the car uses another shader with a
+  bound texture (unchanged). (The earlier note follows:) the same clear pair
   before the 1CA95000 map (followed by its casters) is needed. Open: how the hardware (and Xenia)
   treat a depth write through a 4x view of a 1x surface: likely not the plain 2x2-per-pixel
   overwrite ReGPU does. Next: read Xenia's render-target cache for MSAA-mismatched depth views
