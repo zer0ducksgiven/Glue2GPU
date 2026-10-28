@@ -51,13 +51,13 @@ Still different from stock:
   render thread with a null read at the same code (`8249E108`). The game reads resolved images on
   the CPU. The plugin now implements `Host::resolveWriteback` with stock's `readback_resolve=some`
   policy (an image the first time it's resolved, and again after 60 unused frames;
-  `GLUE2GPU_WRITEBACK=some|all|now|none`). With it TU4 runs without freeze or crash, but at
-  **60.8 / 58.9 fps**. The cost is ReGPU's vertex-fetch path (~7–8.5 ms/frame against ~0.7 on the
-  base game): TU4 rewrites large vertex ranges every frame, which the early-fence change tracking
-  copies. Without early fences the copies go away, but fence latency holds it at ~60 instead.
-  Closing this needs page-level write tracking of guest memory (what stock does), a ReGPU design
-  change. The base game is unaffected (94.8 / 91.0 with the write-back policy). A 10-minute TU4
-  drive soak (`run/tu4-soak`): no crash, freeze or stall over 1 s; 67.3 fps average, 58.8 minimum.
+  `GLUE2GPU_WRITEBACK=some|all|now|none`). With it TU4 runs without freeze or crash. It first
+  managed only 60.8 / 58.9 fps: the early-fence index guard sent TU4's rewritten index buffers
+  through the CPU's index expansion (7 ms a frame). Limited to rect lists (ReGPU `HEAD` of the
+  branch), **TU4 runs 91.7 / 92.5 fps against stock's 93.8 / 92.5**. The base game is unchanged
+  (93.8 / 94.1). A 10-minute TU4
+  drive soak (`run/tu4-soak`, before the index fix): no crash, freeze or stall over 1 s; 67.3 fps
+  average, 58.8 minimum.
 - TU4 on ReGPU renders correctly overall (`run/tu4_compare.png`). As in the base game, sun
   shadows on the ground are much weaker than stock's crisp tower shadows. ReGPU also implements no
   polygon offset (`PA_SU_POLY_OFFSET_*`), though missing depth bias would add shadow, not remove
