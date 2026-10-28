@@ -509,6 +509,21 @@ output edits (`probe.py`).
 - Ruled out: 2-bit alpha quantisation of k_2_10_10_10_FLOAT targets (stock's resolved scene alpha
   reads 1/3, ReGPU's 0.25; quantising at the output was tried, A/B'd live in `run/alphaq-test`,
   shapes unchanged, reverted).
-- Next: in capture 1's shape frame, evaluate the composite's samples at 1020,70 (its jitter
-  offsets, each sample's colour and alpha) to see which sample brings the shape in, and compare
-  the same samples' sources with stock.
+- The composite's sample selection is by exact alpha equality, and stock's resolved scene alpha is
+  1/3 where ReGPU's is 0.25: the scene resolve's destination is k_2_10_10_10 (texture format 7),
+  2 bits of alpha, but ReGPU's copy kept 8/16. **Rounding alpha to 2 bits in the resolve**
+  (`REGPU_NO_RESOLVE_ALPHA2=1` to A/B) cut the shapes clearly in a live A/B (`run/alpha2-test`:
+  most frames clean, the rest with smaller shapes right at the stage confetti, against shapes in
+  nearly every frame without it). Rounding the draw output on 2_10_10_10_FLOAT surfaces too
+  (formats 3 and 12, `REGPU_NO_ALPHA2`) is built but its A/B wasn't finished (moved to the FX).
+
+### FX machine (FX-8350, GTX 970)
+- Reached over SSH (key auth). FH1 TU4 copied to a local folder
+  (build, game, tu4, sdkbin, profile-save; 8.3 GB). Launched by the interactive scheduled task
+  `FH1Test` (`fh1-run.cmd`, settings in `run\env.cmd`), driven from here with
+  `scratchpad\fxdrive.ps1` (debug server tunnelled to local port 7351).
+- **Stock runs** on the FX (30 fps in free roam). **ReGPU froze** there entering the world on its
+  first run: no VdSwap after #952-956, command processor idle on an empty ring (the title waiting
+  on the GPU), while early draws waited ~30 s on first-boot shader compiles. With
+  `GLUE2GPU_WRITEBACK=all` it got into the world but crawled at 1 fps on first-boot pipeline
+  builds (the GTX 970 driver is slow to build them).
