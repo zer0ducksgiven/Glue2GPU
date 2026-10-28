@@ -268,6 +268,13 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     // is skipped instead of waited for. On a first boot on a slow PC (the FX-8350 + GTX 970) the
     // waits held the command processor for tens of seconds while FH1 loaded the world, and the title
     // never recovered (no VdSwap again); with both, it reaches free roam.
+    // REGPU_TEXTURE_GAMMA, REGPU_RESOLVE_GAMMA: Xenos gamma-signed fetches and gamma-encoding
+    // resolves of k_8_8_8_8_GAMMA surfaces. Without both, FH1 comes out washed out (FX, festival:
+    // mean luma 118 against stock's 87, walls 59 against 19); with both, 85 and 28.
+    if (!std::getenv("REGPU_TEXTURE_GAMMA"))
+        _putenv_s("REGPU_TEXTURE_GAMMA", "1");
+    if (!std::getenv("REGPU_RESOLVE_GAMMA"))
+        regpu::driver::SetSwitch("REGPU_RESOLVE_GAMMA", true);
     // (REGPU_ASYNC_SHADERS is read when ReGPU loads, before this runs: set through the driver.)
     for (const char* name : { "REGPU_ASYNC_SHADERS", "REGPU_ASYNC_PIPELINES" })
         if (!std::getenv(name))
