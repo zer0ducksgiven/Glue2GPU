@@ -67,7 +67,17 @@ Still different from stock:
   between. ReGPU applies that clear to the atlas's top-left 480x512, so the map is empty and the
   wall is lit. Stock keeps the casters there (from the full-atlas cascade). Experiment (temporary
   switch, reverted): skipping every 4x-view depth clear brings the wall to 18.7 (stock 16.9) but
-  over-darkens lit ground (22.7 vs 45) and leaves a seam on the car, because the same clear pair
+  over-darkens lit ground (22.7 vs 45) and leaves a seam on the car. **Correction, and the real
+  cause (fixed):** stock's near map is cleared there too (8x8 value grids, `grid.txt`); its wall
+  pixel is also "lit" by the near cascade. Stock's pixel history (`stockwin.txt`) shows the
+  difference: after the near boxes, a stencil reset (event 19011) lets the far MIN-blended boxes
+  reach every pixel, and the wall ends at 0.45. The game sends that reset as a 640x360 rectangle
+  through a 4x MSAA view (pitch 640) that shares only the mask pass's depth base; ReGPU's MSAA
+  rectangle scaling matched views by colour base only, so it reset a quarter of the stencil.
+  ReGPU now records each depth base's native layout and scales such rectangles
+  (`REGPU_NO_DEPTH_VIEW_SCALE=1`: as before). Stand wall 26.9 -> 21.8 (stock 16.9), sunlit ground
+  unchanged. The car's own shadow beside it is still lighter than stock (54.8 vs 35.8): a separate
+  map. (The earlier note follows:) the same clear pair
   before the 1CA95000 map (followed by its casters) is needed. Open: how the hardware (and Xenia)
   treat a depth write through a 4x view of a 1x surface: likely not the plain 2x2-per-pixel
   overwrite ReGPU does. Next: read Xenia's render-target cache for MSAA-mismatched depth views
