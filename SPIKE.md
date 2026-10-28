@@ -432,6 +432,21 @@ output edits (`probe.py`).
   z-prepass vertex shaders and forcing vertex copies (`REGPU_NO_DIRECT_FETCH`) don't remove them.
 - So they are likely drawn into an intermediate target that a post pass composites (a
   light-shaft/sun-occlusion or sky-occlusion buffer, which also fits the dark noisy square near
-  the horizon), or they are depth written outside the scene pass. Next: a RenderDoc capture of
-  TU4 with pixel history on a shape pixel (rdcap.ps1 targets the base build; it needs the tu4 build
-  and an HDR-aware export of the R16G16B16A16 targets).
+  the horizon), or they are depth written outside the scene pass.
+- **RenderDoc pixel history** (`run/rd-tu4-sky`, `fh1_capture_2`, pixel 1050,50) corrected that:
+  the shape pixel is written by an ordinary main-pass ground draw (event 32607, guest
+  `vs 318016058c8ed5a2 ps 5624eb5f90520974`, triangle strip, 10758 indices, depth GreaterEqual,
+  brown 0.27/0.25/0.20 at depth 0.087), then resolved (event 33512); the clouds after it fail
+  depth there. Its primitive 666 has two vertices in front of the camera already projecting
+  above the top of the screen and one behind it (w = -1): a ground triangle whose vertices are
+  wrong, stretched up past the camera. The VS reads its position as 32_32_32_FLOAT (fetch slot
+  95, stride 8 dwords) through the object and view-projection constants: nothing exotic.
+  (The earlier tints missed it because they were judged by colour in a band the stage also covers.)
+- Stock shows no shapes at the same spot (`run/stock-sky`). Ruled out on ReGPU, each live or by
+  re-run: user clip planes (FH1 never enables them: PA_CL_CLIP_CNTL is always 0x00090000,
+  CLIP_DISABLE + DX clip space; an implementation was tried and reverted), in-place index reads
+  (`REGPU_NO_DIRECT_INDEX=1`), in-place vertex reads (`REGPU_NO_DIRECT_FETCH=1`), and early fences
+  (unset: `run/nofence-sky2`). Note `REGPU_EARLY_FENCES=0` still turns them on (presence check).
+- Next: read that draw's vertex fetch constant (slot 95, which shares dwords with texture fetch
+  constant 31) and the vertices of primitive 666 in guest memory at draw time, against what
+  stock fetches for the same draw.
