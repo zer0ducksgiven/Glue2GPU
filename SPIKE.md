@@ -65,8 +65,14 @@ Still different from stock:
   draw loop takes 12.7 ms, of which **constants 8.7 ms, almost all texture fetch constants
   (6.95 ms)** at ~3400 draws/frame (slow frames reach 16–18 ms there). This is CPU-bound
   fetch-constant processing (likely per-draw texture lookup/descriptor work), the next thing
-  to optimise: cache fetch-constant → descriptor results across draws when the 6 dwords are
-  unchanged.
+  to optimise. Note the `fetches` bucket is the *vertex* fetch loop (DynamicBuffer check +
+  UploadGuest of small buffers). Ruled out tonight: the copy threshold (`REGPU_DIRECT_FETCH_KB=4`,
+  `run/tu4-fetch4k`: 7.5 ms, unchanged) and DynamicBuffer's hashing (sampling buffers >64 KB,
+  `run/tu4-samplehash2`: 7.6 ms, unchanged; reverted). DynamicBuffer tracks ~57k large buffers on
+  this route but only ~100 are copied. Next step: a sampling profiler (e.g. VTune/Superluminal)
+  on that loop rather than more guessing.
+- Plugin build note: `build/plugin/rexgpu-regpu.dll` must be copied into
+  `fh1/forza-recomp/out/build/<build>/` after a build.
 - TU4 on ReGPU renders correctly overall (`run/tu4_compare.png`). As in the base game, sun
   shadows on the ground are much weaker than stock's crisp tower shadows. ReGPU also implements no
   polygon offset (`PA_SU_POLY_OFFSET_*`), though missing depth bias would add shadow, not remove
