@@ -737,3 +737,12 @@ output edits (`probe.py`).
   off makes it worse (2.5). Next: split the pass's inputs (scene depth vs atlas taps) with `ps`
   edits, e.g. output the reconstructed shadow-space position, and compare its frame-to-frame
   change with stock's. Scripts: `spot.py`, `spotab.py` in the session scratchpad.
+  Continued: tried feeding the pixel-position input as the Xenos integer corner (SV_Position -
+  0.5 when PA_SU_VTX_CNTL bit 0 is clear: the mask shader adds the half texel itself before
+  reading scene depth). No measurable change at the spot (fixed 1.44-1.98, old 1.45-2.04);
+  reverted. Per-frame score swings with the idle sway's phase (baseline 0.95-1.91), so single
+  A/B pairs mislead: interleave and average several. Mask-pass intermediates scored with `ps`
+  edits (tap coordinate fraction, atlas tap depth) were inside that noise. The amplified diff at
+  the spot shows the change along the painted stripes' edges and the car outline inside the
+  shadowed area. `startspot.ps1` retries until the session spawns at the start view (some
+  sessions spawn at the Autoshow).
