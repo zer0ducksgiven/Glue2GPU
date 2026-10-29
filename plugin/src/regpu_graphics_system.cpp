@@ -298,6 +298,11 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     // distant ground sharper than stock's. GLUE2GPU_ANISO=1 keeps ReGPU's 16x.
     if (!std::getenv("GLUE2GPU_ANISO") && !std::getenv("REGPU_ANISO_FROM_FETCH"))
         regpu::driver::SetSwitch("REGPU_ANISO_FROM_FETCH", true);
+    // REGPU_NO_FETCH_BOUNDS: vertex fetches are not held to the fetch constant's size, as on the console
+    // and in Xenia. FH1's skid marks read past it once many are on screen; bounded, those vertices came
+    // back as zeros and the marks stretched to the map origin. GLUE2GPU_FETCH_BOUNDS=1 keeps the bound.
+    if (!std::getenv("GLUE2GPU_FETCH_BOUNDS") && !std::getenv("REGPU_NO_FETCH_BOUNDS"))
+        regpu::driver::SetSwitch("REGPU_NO_FETCH_BOUNDS", true);
     // REGPU_EARLY_FENCES: fences written when the command processor reaches them (as Xenia and the
     // Xenos do), with rewritten vertex and index ranges copied. With fences after the host GPU, FH1
     // waits on every frame: FX free roam 18 fps against stock's 37, 34 with them, and the same
