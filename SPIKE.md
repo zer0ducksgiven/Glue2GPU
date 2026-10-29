@@ -793,3 +793,14 @@ output edits (`probe.py`).
   15/16 horizontal squeeze of every cascade since the surface-rows change (3f6b0ac). Test next:
   `REGPU_SURFACE_ROWS=720` (env, restart) at the same parked spot, and measure tents' aspect in
   the atlas; a stock atlas would settle it (renderdoc on stock).
+  Session 4: `REGPU_SURFACE_ROWS=720` leaves the band as it is (0.82 vs 0.80); the atlas lines at
+  479/959 are not it. Stock captured under RenderDoc at the same spot (`run/manual/rd/
+  stock_capture.rdc`, textures exported by `rdexport.py` via `qrenderdoc --python`): stock's
+  1024x1024 cascade atlas (ResourceId 32268) matches ReGPU's quadrant for quadrant. Stock's mask
+  (ResourceId 33739, RGBA8): B = soft sun shadow, clean and lit on the far road; R = A = a hard
+  coverage mask (white near ground, black beyond). ReGPU's mask (1CE2D000, red/blue swapped by the
+  copy-swap bit): its shadow channel has a grey dithered patch over the far road that stock's has
+  not. With the atlas equal, the cascade passes' other inputs differ: scene depth (t0, 1DAC5000)
+  used to rebuild the position, or the cascade constants. Next: export stock's depth as EXR and
+  the cascade passes' constant buffers from the capture, and read ReGPU's raw scene depth (the PNG
+  dumps are contrast-stretched) at the band pixels.
