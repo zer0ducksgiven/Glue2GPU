@@ -634,6 +634,16 @@ output edits (`probe.py`).
   Testing photo mode: the scripted DOWN must be two short presses (`128:DOWN:0.15,129.5:DOWN:0.15`;
   a 0.3 s hold moves one or two items with the frame rate). Then B leaves photo mode and A
   re-enters it with a rebuilt image, so switches can be A/B'd in one run (`fxphoto.ps1`).
+- **Remaining shadow gap fixed: the display's PWL gamma ramp.** A fresh ReGPU capture on the FX
+  (`run/rd-shadow2`, `wall.txt`) shows the wall pixel's sun-shadow mask now matches stock (0.436 vs
+  0.451, same box sequence), and the whole mask looks the same (`masks.png`), so the shadows were
+  right and the darks were not. FH1 resolves its front buffer as k_2_10_10_10, for which the display
+  (and Xenia) uses the piecewise-linear gamma ramp (DC_LUT_PWL_DATA), not the 256-entry table; ReGPU
+  only had the table, which FH1 leaves at identity. FH1's PWL ramp darkens the low end (1/16 to
+  0.017). ReGPU now records it and grades a 2_10_10_10 front buffer with it (`REGPU_NO_GAMMA_PWL=1`:
+  the table). FX, festival parked (`run/fx-pwl1`): stand wall 16.8, lit ground 46.5, car shadow
+  36.7, sky 207.8 vs stock 16.6, 44.9, 36.4, 209.2 (was 21.5, 48.1, 40.3, 198.0). Photo mode
+  (`run/fx-ph-pwl`): 38.7, 154.1, 75.5, 49.2 vs stock 36.5, 152.2, 73.3, 49.4.
 - **FX frame rate:** yesterday's 32 fps FX runs had `REGPU_EARLY_FENCES=1`; with the plugin's
   defaults (and `--frame_rate=240`) the FX runs free roam at ~19 fps, stock at ~39. Not a
   regression (yesterday's build measures the same).
