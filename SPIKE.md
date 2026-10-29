@@ -644,6 +644,30 @@ output edits (`probe.py`).
   the table). FX, festival parked (`run/fx-pwl1`): stand wall 16.8, lit ground 46.5, car shadow
   36.7, sky 207.8 vs stock 16.6, 44.9, 36.4, 209.2 (was 21.5, 48.1, 40.3, 198.0). Photo mode
   (`run/fx-ph-pwl`): 38.7, 154.1, 75.5, 49.2 vs stock 36.5, 152.2, 73.3, 49.4.
+- **Overnight 2026-10-29: parity survey and performance.**
+  - Survey, stock vs ReGPU on the FX (`run/fx-sv-*`, `run/fx-dr-*`, `run/sv_all.png`,
+    `run/dr_all.png`): title screen, festival parked at five times, a 45 s drive, photo mode. No
+    differences left beyond streaming/timing (a Ferris wheel showing earlier on ReGPU in one run).
+    This PC (`run/fin-*`): parked wall 16.8/16.6, ground 46.8/45.0, sky 208.7/207.9; photo mode
+    car shadow 38.8/36.8, stand 49.3/49.9 (ReGPU/stock).
+  - **Early fences on by default** (plugin `0e975aa`): FX free roam 18 -> 34 fps (stock 37), same
+    picture. `GLUE2GPU_NO_EARLY_FENCES=1` opts out.
+  - **Forward-only control flow without the dispatch loop** (ReGPU `40c0f90`): GPU time on the
+    GTX 970 30.9 -> ~29 ms. The FX is CPU-bound after it (ReGPU draw ~19 ms of a 29 ms frame,
+    3,700 draws); draw workers (25 fps) and the draw thread (34) don't help there.
+  - **The zero-copy mapping failed on this PC in TU4 runs** (half of all local runs since 10-28,
+    the copy path: vertex uploads 7.3 ms a frame, 63/72 fps against stock 96/95). FH1 TU4 makes the
+    64 KB page after its minimap geometry ring (guest AA860000) PAGE_NOACCESS; present before the
+    renderer starts, it made every heap call fail with E_INVALIDARG. ReGPU now makes such pages
+    read-write while it opens the heap and restores them (`53d77ce`; `REGPU_NO_MAP_UNGUARD=1`),
+    also tries ID3D12Device3 after ID3D12Device13 fails, and retries a failed mapping later.
+    This PC: 94.4 standing, 98.8 driving (stock 96.5, 94.9). FX unchanged (mapped, 34 fps).
+  - **Minimap route and arrow flicker: fixed.** The same guard page: the ring's last block
+    (0A855000, 48 KB) ends 4 KB into it, so on the copy path the upload was zeroed whole and the
+    route and arrow vanished every time the game used that block. The readable start is copied now
+    (`REGPU_UPLOAD_ZERO_UNREADABLE=1`: all zeros). Copy path forced (`run/flick15`): 0 of 113
+    shots on that block without the route, 43 of 43 with the old behaviour. With the mapping (now
+    the norm) the GPU reads the block in place.
 - **FX frame rate:** yesterday's 32 fps FX runs had `REGPU_EARLY_FENCES=1`; with the plugin's
   defaults (and `--frame_rate=240`) the FX runs free roam at ~19 fps, stock at ~39. Not a
   regression (yesterday's build measures the same).
