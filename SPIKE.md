@@ -676,7 +676,13 @@ output edits (`probe.py`).
     merge keys later-tile draws by packet and fetch constants, not shader constants; the dome's
     widened first-tile draw evidently doesn't cover what the later tiles' (dropped) draws did. Cost:
     FX 33.6 -> 31.4 fps, this PC none. Open: make the merge key safe instead (`GLUE2GPU_TILE_MERGE=1`
-    turns merging back on).
+    turns merging back on). Keying later-tile draws on the first 16 vertex constants as well was
+    tried and doesn't fix it (`run/flick24`). The same merge also cut off the top of the tall stand
+    tower in some frames (the "Ferris wheel showing on ReGPU" difference in the survey): whole with
+    merging off (`run/vf_cmp.png`).
+  - CPU on the FX: vertex fetch entries zeroed per used slot only (`f926dab`, fetch setup 2.9 ->
+    1.95 ms a frame), last-pipeline memo (`7dfa1e8`, 2.6 -> 1.8 ms). Final FX free roam ~32-34 fps
+    (stock 37); this PC 94-99 (stock 95-96).
 - **FX frame rate:** yesterday's 32 fps FX runs had `REGPU_EARLY_FENCES=1`; with the plugin's
   defaults (and `--frame_rate=240`) the FX runs free roam at ~19 fps, stock at ~39. Not a
   regression (yesterday's build measures the same).
