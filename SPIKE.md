@@ -704,3 +704,22 @@ output edits (`probe.py`).
   blocks; the route is missing exactly when its block is 0A855000 (all 230 such shots, no others).
   Not direct vertex or index reads, indexed draws or fetch bounds (A/B). The FX at ~19 fps never
   reaches that block. Open.
+- **Shadow and minimap shimmer at a 720p render size (29 Oct).** Reported on this PC: shadows (the
+  fence's on the ground, the car's own) and the minimap shimmer between two states; gone with
+  `GLUE2GPU_RES=1920x1080`. Ruled out by A/B with the user watching: early fences, the six
+  reuse/caching switches, surface-by-pitch, direct indices, and waiting for the GPU every frame.
+  Found and fixed in ReGPU (`3f6b0ac`), neither of which removes the shimmer by itself:
+  - The 1024x1024 shadow cascade atlas (1D6C5000, four 512 quadrants, one redrawn per frame in
+    turn) was squeezed into the output's 720 rows (70% resolution). EDRAM surfaces now hold 1024
+    rows (`REGPU_SURFACE_ROWS=720`: as before).
+  - Polygon offset was ignored; FH1's shadow maps use slope 16/16, offset 5e-5. Without it the
+    parked car's rear and roof were 15% darker than stock (acne); with it 68.8/110.7 against
+    stock's 68.1/108.8 (`REGPU_NO_POLY_OFFSET=1`: as before).
+  Not reproduced by scripted runs: debug-server shots of the parked start, side views and a short
+  drive show no two-state or period-4 change, and the user's OBS clip (parked, fence shadow
+  jumping about 7.5 times a second, the near-cascade redraw rate at 30 fps) is not caught by any
+  per-region metric tried. Leads: the shadow mask pass (rect list, scene depth t0 + atlas t1,
+  four taps rotated by a screen-position dither) is smoothed by a later blur that matches 2-bit
+  alpha (`REGPU_NO_RESOLVE_ALPHA2` untested by eye); the 520x520 car shadow maps (1CE95000,
+  1CA95000, the latter reused for 640x360 and 320x180 blur buffers in the same frame) also gain
+  1.5x at 1080p. Open.
