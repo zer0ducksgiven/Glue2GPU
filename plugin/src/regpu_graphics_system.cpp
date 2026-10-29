@@ -292,10 +292,9 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     // Xenos do), with rewritten vertex and index ranges copied. With fences after the host GPU, FH1
     // waits on every frame: FX free roam 18 fps against stock's 37, 34 with them, and the same
     // picture. GLUE2GPU_NO_EARLY_FENCES=1 keeps the late fences (ReGPU only checks the variable is set).
-    // REGPU_NO_TILE_MERGE: FH1 draws its scene in three tiles; merged into one, the sky dome was lost
-    // for a frame now and then while the camera moved (flat grey sky: 0 of 5 suspect frames grey without
-    // merging, most with it). Costs ~2 fps on the FX (33.6 -> 31.4), nothing on a fast PC.
-    // GLUE2GPU_TILE_MERGE=1 keeps merging.
+    // REGPU_NO_TILE_MERGE: FH1 draws its scene in three tiles. Merging them once lost the sky for a frame now
+    // and then (fixed in ReGPU: later-tile stencil draws are kept); with that fix it saves nothing here (FX
+    // 31.5 fps merged, 32.8 not), so FH1 draws its tiles as they come. GLUE2GPU_TILE_MERGE=1 merges.
     if (!std::getenv("GLUE2GPU_TILE_MERGE") && !std::getenv("REGPU_NO_TILE_MERGE"))
         regpu::driver::SetSwitch("REGPU_NO_TILE_MERGE", true);
     if (!std::getenv("GLUE2GPU_NO_EARLY_FENCES") && !std::getenv("REGPU_EARLY_FENCES"))
