@@ -288,6 +288,15 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     for (const char* name : { "REGPU_ASYNC_SHADERS", "REGPU_ASYNC_PIPELINES" })
         if (!std::getenv(name))
             regpu::driver::SetSwitch(name, true);
+    // REGPU_EARLY_FENCES: fences written when the command processor reaches them (as Xenia and the
+    // Xenos do), with rewritten vertex and index ranges copied. With fences after the host GPU, FH1
+    // waits on every frame: FX free roam 18 fps against stock's 37, 34 with them, and the same
+    // picture. GLUE2GPU_NO_EARLY_FENCES=1 keeps the late fences (ReGPU only checks the variable is set).
+    if (!std::getenv("GLUE2GPU_NO_EARLY_FENCES") && !std::getenv("REGPU_EARLY_FENCES"))
+    {
+        _putenv_s("REGPU_EARLY_FENCES", "1");
+        regpu::driver::SetSwitch("REGPU_EARLY_FENCES", true);
+    }
 
     regpu::Start();
     started_ = true;
