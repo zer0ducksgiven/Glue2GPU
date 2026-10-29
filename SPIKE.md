@@ -684,7 +684,14 @@ output edits (`probe.py`).
     so the widening is fine and dropping some later-tile draw is the fault. Adding the vertex and
     pixel shader hashes to `DrawKey` does not fix it (`run/flick26`): a later-tile draw the key
     calls identical to a first-tile one still has to run in its own tile. Next: bisect the dropped
-    draws with `out/tile_keep.txt` over frames that go grey.
+    draws with `out/tile_keep.txt` over frames that go grey. **Root cause found and fixed in ReGPU**
+    (`2d31115`): bisecting the kept range pointed at several ranges, and the common factor is the
+    stencil. The sky draws where its stencil marks allow; a later tile's stencil-marking draws were
+    dropped as duplicates of the widened first-tile ones, whose marks don't survive in that tile.
+    Later-tile draws with the stencil test on are now always drawn (`REGPU_TILE_MERGE_DROP_STENCIL=1`:
+    as before). Merging on, this PC: 0 of 1327 shots grey (`run/tk4`), 9 of 813 with the old rule
+    (`run/tk5`). With the fix merging saves nothing on the FX (31.5 fps merged, 32.8 not), so the
+    plugin keeps it off for FH1.
   - CPU on the FX: vertex fetch entries zeroed per used slot only (`f926dab`, fetch setup 2.9 ->
     1.95 ms a frame), last-pipeline memo (`7dfa1e8`, 2.6 -> 1.8 ms). Final FX free roam ~32-34 fps
     (stock 37); this PC 94-99 (stock 95-96).
