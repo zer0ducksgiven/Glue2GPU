@@ -723,3 +723,17 @@ output edits (`probe.py`).
   alpha (`REGPU_NO_RESOLVE_ALPHA2` untested by eye); the 520x520 car shadow maps (1CE95000,
   1CA95000, the latter reused for 640x360 and 320x180 blur buffers in the same frame) also gain
   1.5x at 1080p. Open.
+  Update (late morning): reproduced and measured. The user's example (start view, the shadow on
+  the ground ahead of the car below the HORIZON boards; region 560-880 x 300-450 at 1280x720,
+  `--frame_rate=240`): mean per-frame change over consecutive frames is 0.2-0.3 on stock
+  (`FORZA_SCREENSHOT_BURST`), 1.0-1.9 on ReGPU (debug-server shots), with the same idle camera
+  sway in both (about 1 px per 30 frames, measured on stock and ReGPU). With the three
+  shadow-mask pixel shaders (95444a07316f3f67, 1a70e13f88601106, be7eb6f8d883ff48: rect list,
+  t0 scene depth 1DAC5000, t1 cascade atlas 1D6C5000) edited to "no shadow" the score drops to
+  0.2-0.6: the shimmer is in that pass. Atlas quadrant redraws while parked do not move (0.00
+  texel shift between captures), and the pass's dither constants are fixed. Not it (scores
+  within noise): aniso, mips, alpha2 resolve rounding, depth view scale, PWL, forward CF, unorm
+  clamp, exponent bias, fixed16 clamp, MSAA scale, rect snap, old depth W. Turning polygon offset
+  off makes it worse (2.5). Next: split the pass's inputs (scene depth vs atlas taps) with `ps`
+  edits, e.g. output the reconstructed shadow-space position, and compare its frame-to-frame
+  change with stock's. Scripts: `spot.py`, `spotab.py` in the session scratchpad.
