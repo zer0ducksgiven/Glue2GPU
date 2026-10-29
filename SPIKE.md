@@ -679,7 +679,12 @@ output edits (`probe.py`).
     turns merging back on). Keying later-tile draws on the first 16 vertex constants as well was
     tried and doesn't fix it (`run/flick24`). The same merge also cut off the top of the tall stand
     tower in some frames (the "Ferris wheel showing on ReGPU" difference in the survey): whole with
-    merging off (`run/vf_cmp.png`).
+    merging off (`run/vf_cmp.png`). Narrowed further: with merging on and `REGPU_TILE_MERGE_KEEP=1`
+    (the first tile still widened, every later-tile draw kept) the sky stays blue (`run/flick25`),
+    so the widening is fine and dropping some later-tile draw is the fault. Adding the vertex and
+    pixel shader hashes to `DrawKey` does not fix it (`run/flick26`): a later-tile draw the key
+    calls identical to a first-tile one still has to run in its own tile. Next: bisect the dropped
+    draws with `out/tile_keep.txt` over frames that go grey.
   - CPU on the FX: vertex fetch entries zeroed per used slot only (`f926dab`, fetch setup 2.9 ->
     1.95 ms a frame), last-pipeline memo (`7dfa1e8`, 2.6 -> 1.8 ms). Final FX free roam ~32-34 fps
     (stock 37); this PC 94-99 (stock 95-96).
