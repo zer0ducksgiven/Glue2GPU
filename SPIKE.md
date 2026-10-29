@@ -774,3 +774,11 @@ output edits (`probe.py`).
   Next: dump the mask after each of #840-848 (REGPU_DUMP_FRAME with per-draw stops) at a fixed
   parked view, find the first draw that darkens the band pixels, then compare its inputs (stencil
   state, atlas quadrant, depth) with Xenia's handling of the 4x-view reset.
+  Follow-up (same evening): `REGPU_SKIP_SHADERS` (ReGPU, live) drops the five atlas-only cascade
+  passes (1a70e13f, be7eb6f8, 64db60b4, 7434d682, ab467afb): band/road ratio 0.74 -> 0.88 on the road
+  out of the start, the same as the scale off (0.87); any single one ~0. Not depth precision (20e4
+  truncation of depth resolves: 0.74 vs 0.73, reverted). Atlas switches (tall pass, image base, tile
+  bpp, depth pack, stale resolves) no effect; NO_TALL_VIEW and NO_HEIGHT_KEEP runs invalid (view
+  moved). Scripted FX drives (RT from the start) hit the barrier: no reproducible view yet. Next:
+  a fixed spot on that road (user parks once), then per-cascade input edits (scene depth t0 vs atlas
+  t1 taps vs stencil) on one of the five passes.
