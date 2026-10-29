@@ -622,3 +622,24 @@ output edits (`probe.py`).
   as before). FX: photo mode even (`run/fx-photo-pitch`), free roam unchanged at 33 fps.
 - Note for the FX: `regpuctl press` does nothing under ReXGlue (ReGPU's debug pad isn't wired);
   input has to go through `FORZA_AUTOPRESS`.
+- **Correction: photo mode's haze was the bug, the dark quadrant the right picture (fixed).**
+  Against stock on the FX (`run/fx-rg-stock`) ReGPU's photo view was veiled all over (stand 111 vs
+  49, no car shadow to speak of). The game draws texture-less rectangles (one blended, 07060141)
+  through a 4x 640x360 view of its 1x 1280x720 scene; in EDRAM that view covers the same samples.
+  Keyed by base alone the rectangle landed unscaled in a quarter (the "dark quadrant", which was
+  the correct look); keyed by pitch (yesterday's fix) it missed the scene altogether. Colour
+  surfaces are now keyed by layout, base and row width in samples (`REGPU_SURFACE_BY_PITCH=1`:
+  by pitch). FX photo view (`run/fx-ph-fix2`): car shadow 41.6, ground 145.5/73.6, stand 50.5 vs
+  stock 36.5, 152.2/73.3, 49.4. Free roam unchanged (`run/fx-rg-fix`).
+  Testing photo mode: the scripted DOWN must be two short presses (`128:DOWN:0.15,129.5:DOWN:0.15`;
+  a 0.3 s hold moves one or two items with the frame rate). Then B leaves photo mode and A
+  re-enters it with a rebuilt image, so switches can be A/B'd in one run (`fxphoto.ps1`).
+- **FX frame rate:** yesterday's 32 fps FX runs had `REGPU_EARLY_FENCES=1`; with the plugin's
+  defaults (and `--frame_rate=240`) the FX runs free roam at ~19 fps, stock at ~39. Not a
+  regression (yesterday's build measures the same).
+- **Minimap route and arrow flicker (this PC; not reproducible on the FX).** Moving, about one shot
+  in eight loses the green route and the player arrow; stock never does. The game draws the
+  minimap into an offscreen target (resolved to 1DAC5000, 256x256) from a ring of 64 KB vertex
+  blocks; the route is missing exactly when its block is 0A855000 (all 230 such shots, no others).
+  Not direct vertex or index reads, indexed draws or fetch bounds (A/B). The FX at ~19 fps never
+  reaches that block. Open.
