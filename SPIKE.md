@@ -668,6 +668,15 @@ output edits (`probe.py`).
     (`REGPU_UPLOAD_ZERO_UNREADABLE=1`: all zeros). Copy path forced (`run/flick15`): 0 of 113
     shots on that block without the route, 43 of 43 with the old behaviour. With the mapping (now
     the norm) the GPU reads the block in place.
+  - **Sky flickering grey: fixed by turning tile merging off for FH1** (plugin). Moving, about 1 in
+    100 shots had most of the sky at the clear colour (a band of sky left in some). Not depth
+    clipping (a no-clip debug switch and a depth-plane snap left it), not async pipelines (no waits).
+    `REGPU_NO_TILE_MERGE=1`: 0 of the flagged frames grey (`run/flick22`, `run/flick23`: 999 shots,
+    none grey), against most flagged frames grey with merging (`run/flick19`, `run/flick20`). The
+    merge keys later-tile draws by packet and fetch constants, not shader constants; the dome's
+    widened first-tile draw evidently doesn't cover what the later tiles' (dropped) draws did. Cost:
+    FX 33.6 -> 31.4 fps, this PC none. Open: make the merge key safe instead (`GLUE2GPU_TILE_MERGE=1`
+    turns merging back on).
 - **FX frame rate:** yesterday's 32 fps FX runs had `REGPU_EARLY_FENCES=1`; with the plugin's
   defaults (and `--frame_rate=240`) the FX runs free roam at ~19 fps, stock at ~39. Not a
   regression (yesterday's build measures the same).
