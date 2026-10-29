@@ -293,6 +293,11 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     // 31.5 fps merged, 32.8 not), so FH1 draws its tiles as they come. GLUE2GPU_TILE_MERGE=1 merges.
     if (!std::getenv("GLUE2GPU_TILE_MERGE") && !std::getenv("REGPU_NO_TILE_MERGE"))
         regpu::driver::SetSwitch("REGPU_NO_TILE_MERGE", true);
+    // REGPU_ANISO_FROM_FETCH: ReGPU filters every linear-wrap texture 16x anisotropically; FH1's fetches
+    // ask for none on most (its ground) and 2x-8x on some, which is what stock (Xenia) gives; 16x made the
+    // distant ground sharper than stock's. GLUE2GPU_ANISO=1 keeps ReGPU's 16x.
+    if (!std::getenv("GLUE2GPU_ANISO") && !std::getenv("REGPU_ANISO_FROM_FETCH"))
+        regpu::driver::SetSwitch("REGPU_ANISO_FROM_FETCH", true);
     // REGPU_EARLY_FENCES: fences written when the command processor reaches them (as Xenia and the
     // Xenos do), with rewritten vertex and index ranges copied. With fences after the host GPU, FH1
     // waits on every frame: FX free roam 18 fps against stock's 37, 34 with them, and the same
