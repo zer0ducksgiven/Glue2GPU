@@ -818,3 +818,10 @@ output edits (`probe.py`).
   comparison needs stock's EDRAM-to-screen mapping, or use RenderDoc's shader debugger on ReGPU's
   event 4252 (pass 1a70e13f) at a band pixel and step the translated HLSL against the microcode
   (`tools/xenos_dis`), looking for the first wrong instruction (predicates, setp, cnd, kill).
+- **Dark band FIXED (ReGPU `22229f5`).** Cause: `setp_inv` was translated backwards (predicate set
+  for a source of 0 and dest 0; Xenos/Xenia: set for 1, dest 1 for 0). The sun-shadow cascade
+  passes (e.g. 1a70e13f) use it after their near taps to skip the far cascade's taps; inverted,
+  those ran on already-shaded pixels and added a second dithered shadow. Found by RenderDoc on both
+  renderers (equal depth, constants and atlas), then the pass's microcode (`regpu_dis`). User
+  confirmed the band gone at the parked spot. setp_inv is a general Xenos instruction, so other
+  titles' predicated shaders were affected too.
