@@ -746,3 +746,16 @@ output edits (`probe.py`).
   the spot shows the change along the painted stripes' edges and the car outline inside the
   shadowed area. `startspot.ps1` retries until the session spawns at the start view (some
   sessions spawn at the Autoshow).
+- **Shimmer found and fixed (29 Oct afternoon, FX).** Debug-server shots slow the game (a PNG a frame),
+  so the camera's idle sway moved more between ReGPU's captured frames than between stock's: those
+  per-frame comparisons were wrong. Real-time capture (ffmpeg ddagrab on the FX through
+  `fh1-run.cmd`'s RECORD hook, `fxrec.ps1`, `recan.py`), change per second at the user's example:
+  stock 15.7-17.0, ReGPU before 37-88, now 12-15. Bisected (two runs each): without the 3D
+  half-pixel shift 22-30, the rest within noise. The shift (ReGPU `58adc47`, as Xenia: viewport-
+  transformed draws with D3D9 pixel centres move half a pixel) also aligns ReGPU's image with
+  stock's (HUD and banners 0.00 px off, 0.6-0.7 without). Same commit: non-power-of-two mips (the
+  768x256 and 2048x768 ground textures had none) and anisotropy from the fetch (plugin `7db63d4`
+  turns it on for FH1; distant-ground fine detail 20% above stock's with forced 16x, now close).
+  The near ground broke for one build (aniso samplers clamping); fixed and checked. Not done: the
+  user's eye on this PC, other scenes (only the start view checked), the minimap area (one final
+  recording showed 50/s there with a cursor and the save icon on screen, 5-9 in every other run).
