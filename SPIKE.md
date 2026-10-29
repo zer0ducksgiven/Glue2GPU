@@ -782,3 +782,14 @@ output edits (`probe.py`).
   moved). Scripted FX drives (RT from the start) hit the barrier: no reproducible view yet. Next:
   a fixed spot on that road (user parks once), then per-cascade input edits (scene depth t0 vs atlas
   t1 taps vs stencil) on one of the five passes.
+  Session 3 (road out of the start, user parked): forcing the five atlas-only cascade passes to
+  "lit" (`ps <hash> float4(4, 1, 0, 0)`) removes the band (ratio 0.72 -> 1.01), forced dark 0.50:
+  their shadow-map comparisons say the road is shadowed. Not acne: constant offset x4..x256
+  (`REGPU_POLY_OFFSET_SCALE`, ReGPU) leaves the band alone while the car's shadow lightens (24 ->
+  32). Not constants (ALL/FULL/BY_COUNT/IN_RING), clipping, culling, indexed/direct fetch, old
+  depth W, atlas freeze. `ps` edits replace the body (r[] are inputs), so they can't read the
+  shader's own registers. Open lead: the 1024 atlas has dark 1-texel lines at columns 479/959 but
+  rows 511/1023 (none in the morning's 720 atlas): either the game's own quadrant borders, or a
+  15/16 horizontal squeeze of every cascade since the surface-rows change (3f6b0ac). Test next:
+  `REGPU_SURFACE_ROWS=720` (env, restart) at the same parked spot, and measure tents' aspect in
+  the atlas; a stock atlas would settle it (renderdoc on stock).
