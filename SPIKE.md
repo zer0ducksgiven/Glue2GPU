@@ -759,3 +759,18 @@ output edits (`probe.py`).
   The near ground broke for one build (aniso samplers clamping); fixed and checked. Not done: the
   user's eye on this PC, other scenes (only the start view checked), the minimap area (one final
   recording showed 50/s there with a cursor and the save icon on screen, 5-9 in every other run).
+- **Dark band ahead of the camera (29 Oct evening, this PC, user parked on the road out of the
+  start).** Stock has none (user checked). Not the road's textures, mips, UVs, decals, today's
+  half-pixel/poly-offset/aniso changes or the shadow maps' contents (frozen). It is the sun-shadow
+  mask: `REGPU_NO_DEPTH_VIEW_SCALE=1` lifts the band (118 -> 153) but makes the start view's stand
+  and far ground brighter than stock (FX: stand 45 vs stock 39 / 40 with the scale), so that
+  switch is not the fix. Mask pass order: #835 640x360 rect through a 4x view (surface 0A020280,
+  colour base 2D0, stencil), #837-839 car maps (1x), #840 4x rect again with MIN blend and colour
+  base 000 (= the depth base) resetting stencil, #841-848 atlas cascades (stencil-gated,
+  depthctl 08718233 / 08700233). With the 4x rects scaled to the whole 1280x720 mask the far
+  cascades process the far ground and write a dithered, partly-shadowed pattern there (mask dump);
+  unscaled they only reach the top-left quadrant. So either #840's coverage differs from the
+  console's, or the far cascades' shadow test fails on that ground where the console's passes.
+  Next: dump the mask after each of #840-848 (REGPU_DUMP_FRAME with per-draw stops) at a fixed
+  parked view, find the first draw that darkens the band pixels, then compare its inputs (stencil
+  state, atlas quadrant, depth) with Xenia's handling of the 4x-view reset.
