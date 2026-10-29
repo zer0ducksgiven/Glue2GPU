@@ -825,3 +825,17 @@ output edits (`probe.py`).
   renderers (equal depth, constants and atlas), then the pass's microcode (`regpu_dis`). User
   confirmed the band gone at the parked spot. setp_inv is a general Xenos instruction, so other
   titles' predicated shaders were affected too.
+- **Minimap glitch at world load (29 Oct night), ReGPU (next commit).** `REGPU_LOG_SKIPS=1` (new)
+  logs, per frame, how many draws were dropped and why. The first frame after the load dropped 27
+  plain rectangle fills (vs 98d34caa/b0114762, ps 8be0d463: clears, stencil resets, mask fills)
+  whose pipelines were building; the minimap's masking draws then painted through stale stencil.
+  `SkippableDraw` did not apply the opaque exemption under `REGPU_ASYNC_PIPELINES`:
+  `WaitForPipeline` returned "not ready" for every unbuilt pipeline. Plain rectangle lists
+  (prim 8, no textures) now force the wait (`REGPU_SKIP_PLAIN_RECTS=1`: as before). Still dropped at
+  load, harmless so far: the 64x64 effect passes (vs 85c4fdb3, ps 69fdaa36/a597d298) and the 24
+  point draws that end every frame (vs b0114762, prim 1, scissor 16x16, colour mask 0). Same
+  commit: initial upload ring 128 MB with zero-copy (the load frame filled 64).
+  Open: the thin dark sliver at screen ~(180-240, 418-422) above the minimap is painted only by
+  minimap/HUD shaders (d5e76b9f minimap, 43a2c7bd HUD sprite compositor) and exists with every
+  switch tried; the user sees "thin seams that follow the car and camera" in front of the car and
+  says stock has none. Not reproduced in motion (debug-server throttle did not move the car).
