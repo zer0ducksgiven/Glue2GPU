@@ -804,3 +804,17 @@ output edits (`probe.py`).
   used to rebuild the position, or the cascade constants. Next: export stock's depth as EXR and
   the cascade passes' constant buffers from the capture, and read ReGPU's raw scene depth (the PNG
   dumps are contrast-stretched) at the band pixels.
+  Session 5 (RenderDoc on both, user parked): ReGPU captured through the port's FORZA_RDCAPTURE
+  trigger under renderdoccmd (works with the plugin). Scripts `rdinspect.py`, `rdatlas.py`,
+  `rdtrack.py` (qrenderdoc --python; RenderDoc 1.3x API: UsedDescriptor.descriptor.resource,
+  GetOutputTargets()[i].resource). Equal between stock and ReGPU at the cascade passes: scene depth
+  at the band probes (0.0490/0.0305/0.0743 vs 0.0451/0.0305/0.0751), the constants (Xenia packs used
+  ones: its c0-c12 = pc0,1,8,9,10,24,25,27,32,33,253,254,255, same values), and the atlas texel
+  values (quadrant means within 0.01; 5-21 of 256 grid texels differ, edges). So the five passes
+  get the same inputs and ReGPU still writes shadow where stock does not: the translation of those
+  shaders (or their render state) differs. Mask target: stock R8G8B8A8_UNORM (k_8_8_8_8, in a
+  1280x2048 EDRAM-layout buffer, so its pixel coordinates are not screen ones), ReGPU
+  R16G16B16A16_FLOAT; the MIN-blended mask is not quantised to 8 bits in ReGPU. Next: per-pixel
+  comparison needs stock's EDRAM-to-screen mapping, or use RenderDoc's shader debugger on ReGPU's
+  event 4252 (pass 1a70e13f) at a band pixel and step the translated HLSL against the microcode
+  (`tools/xenos_dis`), looking for the first wrong instruction (predicates, setp, cnd, kill).
