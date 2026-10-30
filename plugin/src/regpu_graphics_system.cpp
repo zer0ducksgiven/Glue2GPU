@@ -68,6 +68,35 @@ void EnablePadsWithoutFocus()
         REXLOG_WARN("glue2gpu: rexinput_SetPadsWithoutFocus not found; pads need ReXGlue's window focused");
 }
 
+// The game window's title: ReGPU and the frame rate over the last half second (ReXGlue's own title
+// names ReXGlue). Frames are counted on the renderer's thread; the title is set from a thread of its
+// own, as WM_SETTEXT waits for the window's thread.
+std::atomic<uint64_t> g_swaps{ 0 };
+
+void StartTitleFps(HWND hwnd)
+{
+    if (!hwnd)
+        return;
+    regpu::GetHost().onSwap = [](uint64_t) { g_swaps.fetch_add(1, std::memory_order_relaxed); };
+    std::thread([hwnd] {
+        auto last = std::chrono::steady_clock::now();
+        uint64_t lastSwaps = g_swaps.load();
+        SetWindowTextW(hwnd, L"Forza Horizon - ReGPU");
+        while (IsWindow(hwnd))
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            const auto now = std::chrono::steady_clock::now();
+            const uint64_t swaps = g_swaps.load();
+            const double fps = double(swaps - lastSwaps) / std::chrono::duration<double>(now - last).count();
+            last = now;
+            lastSwaps = swaps;
+            wchar_t title[96];
+            swprintf_s(title, L"Forza Horizon - ReGPU - %.0f fps", fps);
+            SendMessageTimeoutW(hwnd, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(title), SMTO_ABORTIFHUNG, 200, nullptr);
+        }
+    }).detach();
+}
+
 uint32_t Alloc(bool physical, uint32_t size, uint32_t align)
 {
     if (!physical)
@@ -252,6 +281,7 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
             // (The swap chain stays the output size and is stretched to the window. Same frame rate
             // as ReGPU's own window in a back-to-back test.)
             config.hostWindow = runtime->display_window()->GetNativeWindowHandle();
+    StartTitleFps(static_cast<HWND>(config.hostWindow));
     // ReXGlue calls InitializeShaderStorage after this, so the cache root comes from its setting.
     if (cacheRoot_.empty())
         if (const std::string root = rex::cvar::GetFlagByName("cache_root"); !root.empty())
