@@ -918,3 +918,19 @@ output edits (`probe.py`).
   quads vs 0DECEC02: ps 88601106 1.2 ms, 316F3F67 0.9 ms, ...). No gain on the FX: an SSE2 FullHash,
   REGPU_CONSTANTS_IN_RING, REGPU_DRAW_WORKERS=4 (slower). Tests: `run/shimmer-tools/fxperf.ps1`.
   (A failed configure left build/plugin without -O2 for half a day: 18 fps then; see the build notes.)
+- **Shadow flicker above 720p, fixed (ReGPU `9aa2580`).** At render scales above 1 and frame rates
+  above 30 the sun shadows, car glass and nearby edges flickered every other frame, worse with the
+  window in the background or another game on the GPU. Not today's changes (yesterday's build
+  flickered too; it only showed once the output resolution setting worked) and not the game (stock
+  ReXGlue on the FX at the same settings was clean). ReGPU's own frame captures never showed it: they
+  make the CPU wait for the GPU, which removes the lag that causes it. Found with a three-frame
+  RenderDoc capture on the FX (`FORZA_RDCAPTURE_TRIGGER`, scripts `run/shimmer-tools/rdframes.py`,
+  `rdshadow.py`, `rdinputs.py`, `rdverts.py`): the first shadow cascade pass drew degenerate triangles
+  in the bad frame (same vertices, all indices zero). The cascade boxes are rect lists whose 36 indices
+  the game clears and rewrites in place every frame; ReGPU read them directly from guest memory when the
+  GPU ran, frames later, and its content check flip-flopped between copying and reading in place. Index
+  buffers under 16 KB are now always copied at record time. Confirmed on the FX by a live A/B
+  (`REGPU_DIRECT_DYNAMIC_INDICES=1` brings it back) at the same frame rate.
+  Dead ends on the way, for the record: early fences, vsync, the window, pass scaling switches, texture
+  and buffer hash density, the speed blur. Several "fixes" only lowered the frame rate below where the
+  lag happens; an A/B within one session at the same frame rate is the test that holds.
