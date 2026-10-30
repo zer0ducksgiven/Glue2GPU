@@ -238,7 +238,11 @@ float3 Fh1AoPosition(int2 p, float z, int2 size, float4 proj)
     float2 ndc = (float2(p) + 0.5) / float2(size) * 2.0 - 1.0;
     return float3(ndc * proj.zw * z, z);
 }
-float Fh1WorldAo(float2 pixel)
+// `gamePixel`: the pixel in the game's own coordinates (input.pos * pinfo2.yz, as the shader's
+// position register); mapped into the depth texture by the size the fetch declares, as the game's
+// fetch does. (The depth image need not be the drawing's size: at a render scale above 1 the pixel
+// itself read the wrong texel whenever they differed, and the occlusion darkened random places.)
+float Fh1WorldAo(float2 gamePixel)
 {
     const float intensity = vuser[0].x;
     if (intensity <= 0.0 || abs(pc[0].x) < 1e-3 || abs(pc[1].y) < 1e-3 || pc[25].y == 0.0) return 1.0;
@@ -247,7 +251,8 @@ float Fh1WorldAo(float2 pixel)
     Texture2D<float4> t = gtex[asuint(tbias[0].y)];
     uint w, h;
     t.GetDimensions(w, h);
-    const int2 size = int2(w, h), p = int2(pixel);
+    const float2 declared = float2(max(tinfo[0].yz & 0xFFFFu, uint2(1, 1)));
+    const int2 size = int2(w, h), p = int2(gamePixel / declared * float2(size));
     const float zc = Fh1AoZ(t, p, size, proj);
     if (zc <= 0.0 || zc >= fadeEnd) return 1.0;
     const float3 c = Fh1AoPosition(p, zc, size, proj);
@@ -298,7 +303,7 @@ uint32_t RewriteShader(uint64_t hash, std::string& hlsl, bool pixel)
         REXLOG_WARN("glue2gpu: shadow pass {:016x} isn't laid out as expected; no ambient occlusion in it", hash);
         return 0;
     }
-    hlsl.insert(output, "    oC0.r *= Fh1WorldAo(input.pos.xy); // Glue2GPU ambient occlusion\n");
+    hlsl.insert(output, "    oC0.r *= Fh1WorldAo(input.pos.xy * pinfo2.yz); // Glue2GPU ambient occlusion\n");
     hlsl.insert(main, kWorldAoHlsl);
     return kShadowPassTag;
 }
