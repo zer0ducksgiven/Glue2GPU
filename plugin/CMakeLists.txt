@@ -1,4 +1,4 @@
-# rexgpu-regpu: ReGPU as a ReXGlue GPU plugin (loaded by --gpu_plugin=regpu).
+﻿# rexgpu-regpu: ReGPU as a ReXGlue GPU plugin (loaded by --gpu_plugin=regpu).
 # Configure with CMAKE_PREFIX_PATH at an installed ReXGlue/ReIGlue SDK, built with the same
 # compiler (ReIGlue's win-amd64 preset: clang/clang++).
 cmake_minimum_required(VERSION 3.25)
@@ -23,6 +23,6 @@ add_library(rexgpu-regpu SHARED
     src/plugin_main.cpp
     src/regpu_graphics_system.cpp
     src/stack_dump.cpp)
-target_link_libraries(rexgpu-regpu PRIVATE regpu rex::runtime dbghelp)
+target_link_libraries(rexgpu-regpu PRIVATE regpu rex::runtime dbghelp shell32)
 # ReGPU's microcode and texture decoders (the shader search, the boot screen's art).
 target_include_directories(rexgpu-regpu PRIVATE "${GLUE2GPU_REGPU}/src")

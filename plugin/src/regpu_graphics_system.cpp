@@ -16,6 +16,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shellapi.h> // CommandLineToArgvW
 
 #include <rex/cvar.h>
 #include <rex/runtime.h>
@@ -32,6 +33,14 @@
 
 #include <regpu/driver.h>
 #include <regpu/regpu.h>
+
+// Settings ReXGlue's own GPU backends define (rex/graphics/flags.h), which aren't loaded with this
+// plugin. The game's graphics screen sets them, and saves nothing when one is missing; the plugin
+// follows them (FollowGraphicsMenu). Registered after ReXGlue read the command line, so their
+// starting values are read from it again (StartingFlag).
+REXCVAR_DEFINE_BOOL(vsync, false, "Display", "Wait for the display's refresh (ReGPU)");
+REXCVAR_DEFINE_INT32(anisotropic_override, -1, "Display",
+                     "Texture filtering: -1 the game's, 0 off, 1-5 1x-16x anisotropic (ReGPU)");
 
 namespace glue2gpu
 {
@@ -73,6 +82,45 @@ void EnablePadsWithoutFocus()
 // own, as WM_SETTEXT waits for the window's thread.
 std::atomic<uint64_t> g_swaps{ 0 };
 
+// "--name=value" from the command line ("" when absent).
+std::string StartingFlag(const char* name)
+{
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    std::string value;
+    const std::wstring prefix = L"--" + std::wstring(name, name + strlen(name)) + L"=";
+    for (int i = 1; argv && i < argc; i++)
+        if (std::wstring_view(argv[i]).rfind(prefix, 0) == 0)
+            for (const wchar_t* p = argv[i] + prefix.size(); *p; p++)
+                value += char(*p);
+    LocalFree(argv);
+    return value;
+}
+
+// The game's graphics screen (FH1R's graphics_menu.cpp) changes ReXGlue's flags while the game runs;
+// its live ones reach ReGPU here: frame rate limit and vsync, and texture filtering
+// (anisotropic_override: -1 the game's, 0 off, 1-5 1x-16x).
+void FollowGraphicsMenu()
+{
+    static std::string lastRate, lastVsync, lastAniso;
+    const std::string rate = rex::cvar::GetFlagByName("frame_rate"), vsync = rex::cvar::GetFlagByName("vsync");
+    if (rate != lastRate || vsync != lastVsync)
+    {
+        lastRate = rate;
+        lastVsync = vsync;
+        const int fps = std::atoi(rate.c_str());
+        regpu::SetFrameLimit(fps > 0 ? uint32_t(fps) : 60u, vsync != "false");
+        REXLOG_INFO("glue2gpu: frame rate limit {} fps, vsync {}", fps, vsync);
+    }
+    if (const std::string aniso = rex::cvar::GetFlagByName("anisotropic_override"); aniso != lastAniso)
+    {
+        lastAniso = aniso;
+        const int level = aniso.empty() ? -1 : std::atoi(aniso.c_str());
+        regpu::SetAnisotropy(level <= 0 ? level : 1 << (level - 1));
+        REXLOG_INFO("glue2gpu: texture filtering {}", aniso);
+    }
+}
+
 void StartTitleFps(HWND hwnd)
 {
     if (!hwnd)
@@ -93,6 +141,7 @@ void StartTitleFps(HWND hwnd)
             wchar_t title[96];
             swprintf_s(title, L"Forza Horizon - ReGPU - %.0f fps", fps);
             SendMessageTimeoutW(hwnd, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(title), SMTO_ABORTIFHUNG, 200, nullptr);
+            FollowGraphicsMenu();
         }
     }).detach();
 }
@@ -249,9 +298,10 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     // ReXGlue's own presenter doesn't wait for the display (FH1 has no vsync setting): the title's
     // frame cap limits it. ReGPU's vsync would cap it at the display's rate instead.
     // GLUE2GPU_VSYNC=1, or a "vsync" setting where the host has one, turns it back on.
-    config.vsync = false;
-    if (const std::string v = rex::cvar::GetFlagByName("vsync"); !v.empty())
-        config.vsync = v == "true" || v == "1";
+    for (const char* name : { "vsync", "anisotropic_override" })
+        if (const std::string v = StartingFlag(name); !v.empty())
+            rex::cvar::SetFlagByName(name, v);
+    config.vsync = rex::cvar::GetFlagByName("vsync") == "true";
     if (const char* v = std::getenv("GLUE2GPU_VSYNC"))
         config.vsync = *v == '1';
     if (const std::string fps = rex::cvar::GetFlagByName("frame_rate"); !fps.empty())
