@@ -869,3 +869,14 @@ output edits (`probe.py`).
   frame, buffers reused within a frame are rehashed per draw: kept, the explosions came from that).
   Now the limits: ReGPU's command processor (never idle; ~7 ms draw work a frame for ~3600 draws)
   and the GPU (~8.5 ms a frame: ~90 resolves and ~400 barriers a frame, `REGPU_TRACE_BARRIERS=1`).
+- **Draw thread on for FH1 (plugin `71aaa68`, ReGPU `959baa0`): ~98-100 -> ~106-108 fps.** With the
+  main and render threads overlapping, ReGPU's command processor was the limit; REGPU_DRAW_THREAD
+  (translation on its own thread) now pays off (three runs each, same picture: minimap, skid marks,
+  shadows checked). ReGPU read it in a static initialiser, before the plugin could set it; now when
+  the command processor starts. `GLUE2GPU_NO_DRAW_THREAD=1` turns it off. On a paused frame now:
+  command processor never idle (waits on the worker ~7 times a frame), worker 89% busy, GPU ~78%.
+  Opt-in `REGPU_UPLOAD_STABLE_REUSE=1` (ReGPU `253e9c1`): sampled reuse checks for ranges never seen
+  changing (+5% paused, +1-2% driving; off for the one-frame risk at a range's first change).
+  No gain, reverted: 4-chain hash, once-a-frame shader compare, batched resolve barriers.
+  Method for small changes: a paused frame (replay + `FORZA_AUTOPRESS="95:START:0.3"`) is steady to
+  +-1 fps; put the change behind a live switch and run `run/shimmer-tools/abfps.py`.
