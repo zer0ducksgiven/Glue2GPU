@@ -81,8 +81,8 @@ void EnablePadsWithoutFocus()
 }
 
 // The game window's title: ReGPU and the frame rate over the last half second (ReXGlue's own title
-// names ReXGlue). Frames are counted on the renderer's thread; the title is set from a thread of its
-// own, as WM_SETTEXT waits for the window's thread.
+// names ReXGlue). Frames are counted on the renderer's thread (Host::onSwap, FillHost); the title is
+// set from a thread of its own, as WM_SETTEXT waits for the window's thread.
 std::atomic<uint64_t> g_swaps{ 0 };
 
 // The graphics screen's rebuild settings: output resolution, upscaler, MSAA scene resolution and
@@ -146,7 +146,7 @@ void MenuRenderSettings(regpu::Config& config)
     for (const auto& [flag, value] : { std::pair{ "resolution", output == "720p" ? std::string() : output },
                                        std::pair{ "fh1_upscaler", upscaler }, std::pair{ "resolution_scale", scale } })
         rex::cvar::SetFlagByName(flag, value);
-    for (const char* flag : { "vsync", "anisotropic_override", "frame_rate" })
+    for (const char* flag : { "vsync", "anisotropic_override", "frame_rate", "world_ambient_occlusion", "world_shadow_filter" })
         if (StartingFlag(flag).empty())
             if (const auto it = saved.find(flag); it != saved.end() && !it->second.empty())
                 rex::cvar::SetFlagByName(flag, it->second);
@@ -171,6 +171,108 @@ void MenuRenderSettings(regpu::Config& config)
     }
     REXLOG_INFO("glue2gpu: graphics screen: output {}, upscaler {}, scene scale {} -> render {}x{}", output, upscaler,
                 scale, config.width, config.height);
+}
+
+// Ambient occlusion (the graphics screen's world_ambient_occlusion, defined by FH1R's world_ao.cpp):
+// ReXGlue's Vulkan renderer runs it as compute passes (its fh1_world_ao.cpp). Here it is computed
+// inside the game's own shadow-mask passes (ApplyShadows, one full-screen pass per cascade, which
+// read the scene depth as fetch 0 and have its projection in c0, c1 and c25): the same scalable
+// ambient obscurance from depth, multiplied into the mask's red channel (the sun's visibility).
+// The cascades after the first combine with MIN, and min(a*ao, b*ao) = ao*min(a, b), so every pass
+// multiplies the same factor. The spiral turns with a 2x2 pattern that the game's 2x2 blur of the
+// mask evens out. Unlike Vulkan's, the cars and trees aren't left out (their stencil isn't bound
+// to these passes).
+// The shadow passes by ReGPU's hash (the seven of ReXGlue's kShadowPasses).
+constexpr uint64_t kShadowPasses[] = { 0x0289a01b9007b9a9ull, 0x1a70e13f88601106ull, 0x64db60b4b009cf21ull,
+                                       0x7434d68269c7567cull, 0x95444a07316f3f67ull, 0xab467afbd5193c44ull,
+                                       0xbe7eb6f8d883ff48ull };
+constexpr uint32_t kShadowPassTag = 0xA0;
+std::atomic<float> g_aoIntensity{ 0.0f }; // 0 off, 0.6 low, 1 high
+
+constexpr char kWorldAoHlsl[] = R"(
+// Glue2GPU: ambient occlusion from the scene depth (fetch 0), scalable ambient obscurance.
+float Fh1AoZ(Texture2D<float4> t, int2 p, int2 size, float4 proj)
+{
+    if (any(p < 0) || any(p >= size)) return 0.0;
+    float d = t.Load(int3(p, 0)).x;
+    float den = 1.0 - proj.x - d;
+    float z = abs(proj.y / (abs(den) > 1e-20 ? den : 1e-20));
+    return (d <= 0.0 || isinf(z) || isnan(z)) ? 0.0 : z;
+}
+float3 Fh1AoPosition(int2 p, float z, int2 size, float4 proj)
+{
+    float2 ndc = (float2(p) + 0.5) / float2(size) * 2.0 - 1.0;
+    return float3(ndc * proj.zw * z, z);
+}
+float Fh1WorldAo(float2 pixel)
+{
+    const float intensity = vuser[0].x;
+    if (intensity <= 0.0 || abs(pc[0].x) < 1e-3 || abs(pc[1].y) < 1e-3 || pc[25].y == 0.0) return 1.0;
+    const float4 proj = float4(pc[25].x, pc[25].y, 1.0 / abs(pc[0].x), 1.0 / abs(pc[1].y));
+    const float radius = 1.5, fadeStart = 60.0, fadeEnd = 160.0;
+    Texture2D<float4> t = gtex[asuint(tbias[0].y)];
+    uint w, h;
+    t.GetDimensions(w, h);
+    const int2 size = int2(w, h), p = int2(pixel);
+    const float zc = Fh1AoZ(t, p, size, proj);
+    if (zc <= 0.0 || zc >= fadeEnd) return 1.0;
+    const float3 c = Fh1AoPosition(p, zc, size, proj);
+    // The normal from the neighbours on the same surface (the smaller depth step on each axis).
+    const float zl = Fh1AoZ(t, p - int2(1, 0), size, proj), zr = Fh1AoZ(t, p + int2(1, 0), size, proj);
+    const float zu = Fh1AoZ(t, p - int2(0, 1), size, proj), zd = Fh1AoZ(t, p + int2(0, 1), size, proj);
+    const bool right = zr > 0.0 && (zl <= 0.0 || abs(zr - zc) < abs(zc - zl));
+    const bool down = zd > 0.0 && (zu <= 0.0 || abs(zd - zc) < abs(zc - zu));
+    const float3 dx = right ? Fh1AoPosition(p + int2(1, 0), zr, size, proj) - c : c - Fh1AoPosition(p - int2(1, 0), zl, size, proj);
+    const float3 dy = down ? Fh1AoPosition(p + int2(0, 1), zd, size, proj) - c : c - Fh1AoPosition(p - int2(0, 1), zu, size, proj);
+    float3 n = cross(dx, dy);
+    const float nl = length(n);
+    if (nl < 1e-12) return 1.0;
+    n /= nl;
+    if (dot(n, c) > 0.0) n = -n; // towards the camera
+    float pixels = radius * 0.5 * float(size.y) / (zc * proj.w);
+    if (pixels < 1.0) return 1.0;
+    pixels = min(pixels, 0.1 * float(size.y));
+    // Four turns of the spiral in each 2x2 block (the game blurs the mask 2x2).
+    const float turn = 6.2831853 * (float(((p.x & 1) << 1) | (p.y & 1)) + 0.5) * 0.25;
+    const float r2 = radius * radius, bias = 0.01 * radius + 0.001 * zc;
+    float sum = 0.0;
+    [loop] for (int i = 0; i < 12; ++i)
+    {
+        const float a = (float(i) + 0.5) / 12.0;
+        const float angle = a * 5.0 * 6.2831853 + turn;
+        const int2 q = int2(float2(p) + 0.5 + a * pixels * float2(cos(angle), sin(angle)));
+        const float zq = Fh1AoZ(t, q, size, proj);
+        if (zq <= 0.0) continue;
+        const float3 v = Fh1AoPosition(q, zq, size, proj) - c;
+        const float vv = dot(v, v), vn = dot(v, n);
+        const float f = max(r2 - vv, 0.0);
+        sum += f * f * f * max((vn - bias) / (0.01 * r2 + vv), 0.0);
+    }
+    const float ao = max(0.0, 1.0 - sum * intensity / (r2 * r2 * r2) * (5.0 / 12.0));
+    const float fade = saturate((fadeEnd - zc) / (fadeEnd - fadeStart));
+    return lerp(1.0, ao, fade);
+}
+)";
+
+uint32_t RewriteShader(uint64_t hash, std::string& hlsl, bool pixel)
+{
+    if (!pixel || std::find(std::begin(kShadowPasses), std::end(kShadowPasses), hash) == std::end(kShadowPasses))
+        return 0;
+    const size_t main = hlsl.find("float4 main("), output = hlsl.find("    switch (pinfo.x)");
+    if (main == std::string::npos || output == std::string::npos || hlsl.find("TFetch") == std::string::npos)
+    {
+        REXLOG_WARN("glue2gpu: shadow pass {:016x} isn't laid out as expected; no ambient occlusion in it", hash);
+        return 0;
+    }
+    hlsl.insert(output, "    oC0.r *= Fh1WorldAo(input.pos.xy); // Glue2GPU ambient occlusion\n");
+    hlsl.insert(main, kWorldAoHlsl);
+    return kShadowPassTag;
+}
+
+void OnDraw(uint64_t, uint64_t, uint32_t, uint32_t psTag, const float (*)[4], float user[4][4])
+{
+    if (psTag == kShadowPassTag)
+        user[0][0] = g_aoIntensity.load(std::memory_order_relaxed);
 }
 
 // "--name=value" from the command line ("" when absent).
@@ -214,6 +316,13 @@ void FollowGraphicsMenu()
             REXLOG_INFO("glue2gpu: graphics screen request '{}' saved; applies at the next start", request);
         }
     }
+    static std::string lastAo = "?";
+    if (const std::string ao = rex::cvar::GetFlagByName("world_ambient_occlusion"); ao != lastAo)
+    {
+        lastAo = ao;
+        g_aoIntensity = ao == "high" ? 1.0f : ao == "low" ? 0.6f : 0.0f;
+        REXLOG_INFO("glue2gpu: ambient occlusion {}", ao.empty() ? "off" : ao);
+    }
     if (const std::string aniso = rex::cvar::GetFlagByName("anisotropic_override"); aniso != lastAniso)
     {
         lastAniso = aniso;
@@ -227,7 +336,6 @@ void StartTitleFps(HWND hwnd)
 {
     if (!hwnd)
         return;
-    regpu::GetHost().onSwap = [](uint64_t) { g_swaps.fetch_add(1, std::memory_order_relaxed); };
     std::thread([hwnd] {
         auto last = std::chrono::steady_clock::now();
         uint64_t lastSwaps = g_swaps.load();
@@ -383,7 +491,12 @@ void ReGpuGraphicsSystem::FillHost()
     host.interruptLockRelease = InterruptLockRelease;
     host.logThreadStacks = LogThreadStacks;
     host.resolveWriteback = ResolveWriteback;
-    host.onSwap = [](uint64_t frame) { g_swapCount.store(frame, std::memory_order_relaxed); };
+    host.onSwap = [](uint64_t frame) {
+        g_swapCount.store(frame, std::memory_order_relaxed);
+        g_swaps.fetch_add(1, std::memory_order_relaxed); // the title's frame rate (StartTitleFps)
+    };
+    host.rewriteShader = RewriteShader;
+    host.onDraw = OnDraw;
 }
 
 X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* dispatcher,
