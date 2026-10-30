@@ -312,6 +312,11 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
         _putenv_s("REGPU_EARLY_FENCES", "1");
         regpu::driver::SetSwitch("REGPU_EARLY_FENCES", true);
     }
+    // REGPU_DRAW_THREAD: draws translated on a thread of their own while the command processor parses
+    // on. FH1 free roam (5800X + 4070, the replayed drive): 98-100 -> 106-108 fps, three runs each, the
+    // same picture. GLUE2GPU_NO_DRAW_THREAD=1 keeps one thread (ReGPU only checks the variable is set).
+    if (!std::getenv("GLUE2GPU_NO_DRAW_THREAD") && !std::getenv("REGPU_DRAW_THREAD"))
+        _putenv_s("REGPU_DRAW_THREAD", "1");
 
     regpu::Start();
     started_ = true;
