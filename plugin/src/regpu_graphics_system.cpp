@@ -9,6 +9,9 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <mutex>
 #include <thread>
@@ -82,6 +85,94 @@ void EnablePadsWithoutFocus()
 // own, as WM_SETTEXT waits for the window's thread.
 std::atomic<uint64_t> g_swaps{ 0 };
 
+// The graphics screen's rebuild settings: output resolution, upscaler, MSAA scene resolution and
+// anti-aliasing. Its Save sends them as fh1_graphics_request ("id width height scale mode") and
+// waits for "id|ok" in fh1_graphics_result, then writes graphics-settings.json; ReXGlue's Vulkan
+// renderer defines these and rebuilds live. ReGPU sizes its targets once, so here they apply at the
+// next start: the plugin answers ok and reads the file then (MenuRenderSettings).
+REXCVAR_DEFINE_STRING(fh1_graphics_request, "", "Display", "Graphics screen request (ReGPU)");
+REXCVAR_DEFINE_STRING(fh1_graphics_result, "", "Display", "Graphics screen result (ReGPU)");
+REXCVAR_DEFINE_STRING(fh1_upscaler, "off", "Display", "Upscaler: off, fsr1_quality, fsr1_balanced, fsr1_performance (ReGPU)");
+REXCVAR_DEFINE_STRING(resolution_scale, "1", "Display", "Game MSAA scene: 1 1280x720, 2 2560x1440, 3 3840x2160 (ReGPU)");
+
+std::string StartingFlag(const char* name);
+
+// graphics-settings.json's "key": "value" pairs (the graphics screen writes it flat).
+std::unordered_map<std::string, std::string> SavedGraphicsSettings()
+{
+    std::filesystem::path path;
+    if (const char* p = std::getenv("FORZA_GRAPHICS_SETTINGS"); p && *p)
+        path = p;
+    else
+        path = std::filesystem::path(rex::cvar::GetFlagByName("user_data_root")) / "graphics-settings.json";
+    std::ifstream in(path, std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::unordered_map<std::string, std::string> out;
+    for (size_t at = 0; (at = text.find('"', at)) != std::string::npos;)
+    {
+        const size_t keyEnd = text.find('"', at + 1);
+        const size_t colon = keyEnd == std::string::npos ? keyEnd : text.find_first_not_of(" \t", keyEnd + 1);
+        if (colon == std::string::npos || text[colon] != ':')
+        {
+            at = keyEnd == std::string::npos ? keyEnd : keyEnd + 1;
+            continue;
+        }
+        const size_t valueStart = text.find_first_not_of(" \t\r\n", colon + 1);
+        if (valueStart == std::string::npos || text[valueStart] != '"')
+        {
+            at = colon + 1;
+            continue;
+        }
+        const size_t valueEnd = text.find('"', valueStart + 1);
+        if (valueEnd == std::string::npos)
+            break;
+        out[text.substr(at + 1, keyEnd - at - 1)] = text.substr(valueStart + 1, valueEnd - valueStart - 1);
+        at = valueEnd + 1;
+    }
+    return out;
+}
+
+// The saved choices: the menu's flags (so the screen shows them) and ReGPU's render size and
+// upscaler. Output 720p is the launcher's mode, where the screen leaves the other three alone.
+void MenuRenderSettings(regpu::Config& config)
+{
+    const auto saved = SavedGraphicsSettings();
+    const auto get = [&](const char* key, const char* fallback) {
+        const auto it = saved.find(key);
+        return it != saved.end() && !it->second.empty() ? it->second : std::string(fallback);
+    };
+    const std::string output = get("output", "720p"), upscaler = get("upscaler", "off"),
+                      scale = get("resolution_scale", "1");
+    for (const auto& [flag, value] : { std::pair{ "resolution", output == "720p" ? std::string() : output },
+                                       std::pair{ "fh1_upscaler", upscaler }, std::pair{ "resolution_scale", scale } })
+        rex::cvar::SetFlagByName(flag, value);
+    for (const char* flag : { "vsync", "anisotropic_override", "frame_rate" })
+        if (StartingFlag(flag).empty())
+            if (const auto it = saved.find(flag); it != saved.end() && !it->second.empty())
+                rex::cvar::SetFlagByName(flag, it->second);
+    if (output == "720p")
+        return;
+    const uint32_t outW = output == "4k" ? 3840 : output == "1440p" ? 2560 : 1920;
+    const uint32_t outH = output == "4k" ? 2160 : output == "1440p" ? 1440 : 1080;
+    if (upscaler.rfind("fsr1_", 0) == 0)
+    {
+        // FSR 1 draws a smaller scene and scales it up to the output.
+        config.width = outW;
+        config.height = outH;
+        config.upscaler = regpu::Config::Upscaler::Fsr1;
+        config.quality = upscaler == "fsr1_performance" ? 3 : upscaler == "fsr1_balanced" ? 2 : 1;
+    }
+    else
+    {
+        // Game MSAA: the scene at the chosen multiple of 720p, shown at the window's size.
+        const uint32_t s = uint32_t(std::clamp(std::atoi(scale.c_str()), 1, 3));
+        config.width = 1280 * s;
+        config.height = 720 * s;
+    }
+    REXLOG_INFO("glue2gpu: graphics screen: output {}, upscaler {}, scene scale {} -> render {}x{}", output, upscaler,
+                scale, config.width, config.height);
+}
+
 // "--name=value" from the command line ("" when absent).
 std::string StartingFlag(const char* name)
 {
@@ -111,6 +202,17 @@ void FollowGraphicsMenu()
         const int fps = std::atoi(rate.c_str());
         regpu::SetFrameLimit(fps > 0 ? uint32_t(fps) : 60u, vsync != "false");
         REXLOG_INFO("glue2gpu: frame rate limit {} fps, vsync {}", fps, vsync);
+    }
+    // A rebuild request (MenuRenderSettings): accepted; the menu then saves it for the next start.
+    static std::string lastRequest;
+    if (const std::string request = rex::cvar::GetFlagByName("fh1_graphics_request"); request != lastRequest)
+    {
+        lastRequest = request;
+        if (!request.empty())
+        {
+            rex::cvar::SetFlagByName("fh1_graphics_result", request + "|ok");
+            REXLOG_INFO("glue2gpu: graphics screen request '{}' saved; applies at the next start", request);
+        }
     }
     if (const std::string aniso = rex::cvar::GetFlagByName("anisotropic_override"); aniso != lastAniso)
     {
@@ -301,15 +403,17 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     for (const char* name : { "vsync", "anisotropic_override" })
         if (const std::string v = StartingFlag(name); !v.empty())
             rex::cvar::SetFlagByName(name, v);
+    config.width = 1280;
+    config.height = 720;
+    MenuRenderSettings(config); // (also vsync, filtering and frame rate the command line didn't give)
     config.vsync = rex::cvar::GetFlagByName("vsync") == "true";
     if (const char* v = std::getenv("GLUE2GPU_VSYNC"))
         config.vsync = *v == '1';
     if (const std::string fps = rex::cvar::GetFlagByName("frame_rate"); !fps.empty())
         config.maxFps = std::max(30, std::atoi(fps.c_str()));
     // ReGPU draws the scene at this size when no upscaler is on; ReXGlue's default is the
-    // console's 720p (resolution_scale=1). GLUE2GPU_RES=WxH overrides it.
-    config.width = 1280;
-    config.height = 720;
+    // console's 720p (resolution_scale=1). The graphics screen's saved choices
+    // (MenuRenderSettings) come next, and GLUE2GPU_RES=WxH overrides both.
     if (const char* res = std::getenv("GLUE2GPU_RES"))
         std::sscanf(res, "%ux%u", &config.width, &config.height);
     // GLUE2GPU_UPSCALER=fsr1 (ReGPU's FSR 1; fsr3/dlss need ReGPU built with them) and
