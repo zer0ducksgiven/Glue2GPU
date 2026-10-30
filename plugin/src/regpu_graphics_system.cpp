@@ -1,5 +1,7 @@
 // rexgpu-regpu against ReIGlue fh1-0.10.0.24-r2 (317216e) and ReGPU's rexglue-driver branch.
 #include "regpu_graphics_system.h"
+#include "fh1_boot_screen.h"
+#include "fh1_shaders.h"
 #include "stack_dump.h"
 
 #include <algorithm>
@@ -256,6 +258,19 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
             cacheRoot_ = root;
     if (!cacheRoot_.empty())
         config.userDir = cacheRoot_ / "regpu";
+    // Every shader in the game's files, compiled on the first boot behind the boot screen
+    // (GLUE2GPU_NO_STATIC_SHADERS=1: compile as the game first draws with each, as before).
+    if (!std::getenv("GLUE2GPU_NO_STATIC_SHADERS"))
+    {
+        SetShaderSources(rex::cvar::GetFlagByName("game_data_root"), rex::cvar::GetFlagByName("update_data_root"), config.userDir,
+                         g_memory->virtual_membase());
+        regpu::Host& host = regpu::GetHost();
+        host.staticShaders = StaticShaders;
+        host.staticShadersSaved = StaticShadersSaved;
+        host.bootScreen = BootScreenCompose;
+        if (std::getenv("GLUE2GPU_BOOTSCREEN_PREVIEW"))
+            BootScreenPreview();
+    }
 
     // Same range, mask and size as ReXGlue's own GraphicsSystem.
     g_memory->AddVirtualMappedRange(
