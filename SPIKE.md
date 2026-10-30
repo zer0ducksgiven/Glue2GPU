@@ -839,3 +839,33 @@ output edits (`probe.py`).
   minimap/HUD shaders (d5e76b9f minimap, 43a2c7bd HUD sprite compositor) and exists with every
   switch tried; the user sees "thin seams that follow the car and camera" in front of the car and
   says stock has none. Not reproduced in motion (debug-server throttle did not move the car).
+- **Thin seam ahead of the car FIXED (ReGPU `771968f`, 30 Oct night).** Not the minimap. Row 1023
+  of every 1024x1024 shadow map (the car's maps 1D295000 etc., the cascade atlas 1D6C5000) held 0
+  (always in shadow): FH1 clears them through a 4x view of the same EDRAM, and the half-pixel shift
+  added after the view's 2x scale put the clear's far edge on the last row's centres. Texture-less
+  rectangles through another MSAA view now get the snap the upscaled ones use
+  (`REGPU_NO_VIEW_RECT_SNAP=1`: as before). Verified on a paused frame (replay + FORZA_AUTOPRESS
+  START; the pause freezes the camera): the old state draws two thin dark lines across the ground,
+  one just ahead of the car, one across the far road; the fix removes both
+  (`run/seam_fix_marked.png`, magenta). Found from the resolve dumps (last row 86% zeros, in 80-px
+  EDRAM tile blocks) and `REGPU_OLD_CLEAR_SHIFT=1` filling it.
+- **Input record/replay (forza-recomp `6fb3583`, `7891f1f`).** `FORZA_INPUT_RECORD=<file>` logs player
+  1's pad on every change; `FORZA_INPUT_REPLAY=<file>` plays it back on slot 0 (the pad takes over
+  when it ends). `run/shimmer-tools/replay.ps1` replays the user's drive (`run/inputrec/drive.inputs`,
+  68 s); `bench.ps1 <name>` benchmarks it (fps windows, FRAMETIME). Replays diverge a little run to
+  run (load timing), so comparisons use the free-roam part after 60 s; noise about +-3 fps.
+- **Frame rate: 88 -> ~105 fps free roam (forza-recomp `005a0b7`).** Profiled on Windows with a
+  SuspendThread sampler (`run/shimmer-tools/winprof.py`; guest functions from PPCFuncMappings in
+  forza.exe, `guestsyms.py`). The main thread waited 59% of the time in render sync, the render
+  thread 41% in idle passes that all found a main frame counted but not ready: the main loop waited
+  for the swap of the frame being drawn, and only marks the next frame ready later in its own frame,
+  so the two took turns (frame = main work + render work). The main loop now waits on the render
+  queue (more than two frames not taken), the render loop's pass wakes it, and the game gets an
+  even dt while synced that way (the main loop can start two frames back to back): dt sd 0.5-1.0 ms
+  vs 0.9 before. `FORZA_RENDER_SYNC_LEAD=0`, `FORZA_SMOOTH_DT=0` revert. Rejected: pacing main frames
+  to the render interval (feeds back: 38 fps at 100%), REGPU_DRAW_WORKERS=3 (74 fps, sd 3.8; no hang
+  this time), vblank divider 1, frame_rate 120/144, FORZA_GPU_WAIT=block, REGPU_NO_WRITEBACK_FENCES.
+  ReGPU `f71a4b9`: FullHash with AVX2 (fetch section 1.6 -> 1.3 ms/frame; uploads hash ~16-28 MB a
+  frame, buffers reused within a frame are rehashed per draw: kept, the explosions came from that).
+  Now the limits: ReGPU's command processor (never idle; ~7 ms draw work a frame for ~3600 draws)
+  and the GPU (~8.5 ms a frame: ~90 resolves and ~400 barriers a frame, `REGPU_TRACE_BARRIERS=1`).
