@@ -880,3 +880,41 @@ output edits (`probe.py`).
   No gain, reverted: 4-chain hash, once-a-frame shader compare, batched resolve barriers.
   Method for small changes: a paused frame (replay + `FORZA_AUTOPRESS="95:START:0.3"`) is steady to
   +-1 fps; put the change behind a live switch and run `run/shimmer-tools/abfps.py`.
+- **Where this PC's frame goes (paused frame, 2026-10-30).** The command processor waited on the draw
+  worker ~1.3 s of every 2 s: 6-7 times a frame FH1's stream writes a flag through a scratch register,
+  waits for it, raises an interrupt, and waits for the handler to reset the flag (its own GPU<->CPU
+  handshake). Each stop empties the worker (~180-220K words behind). Tried, all reverted, no fps:
+  the wait reading the CP's own pending scratch value, deferring the interrupt to the vblank thread,
+  REGPU_NO_FENCE_ORDER; running the handler without the worker catching up crashed the guest. Per-draw
+  cuts also showed nothing (sync-epoch upload reuse: unsafe too, FH1 rewrites a 252 KB buffer with no
+  signal; reusing identical pixel constant blocks, 60% of draws). +500 ns a draw costs the full
+  predicted fps, so the worker is on the critical path at the handshakes.
+- **First-boot shader precompile (plugin `8dae5bb`).** Host::staticShaders from FH1's .fxobj effect
+  files (loose, the tracks' bin.zip, the title update's media.zip; LZX zips via rexruntime's
+  lzx_decompress) and the executable image: 1548 shaders by ReGPU's key (1092 + 456). Every other zip
+  member adds none (`GLUE2GPU_SHADER_SCAN=deep`). Boot screen from FH1's art (Horizon.zip: the
+  festival stage loading image, E3LargeLogo; Textures.zip's splash and logos are FM4's). FX-8350
+  first boot: 276-290 s compiling, then free roam. ~100 vertex + ~50 pixel shaders still compile in
+  play the first time (the game binds vertex shaders to their layouts when it draws); ReGPU's
+  pipeline store covers them on later boots. `GLUE2GPU_NO_STATIC_SHADERS=1` turns it off.
+- **FX fixes (ReGPU `fe7737f`, `2bd1af6`).** Resolve write-back read 4 bytes past an RGBA8 readback
+  (a fault on the GTX 970 within seconds; since `b383675`). PrecompileAll waited for good on a stored
+  pipeline whose shader file is missing. A must-draw draw (clear, stencil reset, opaque before the
+  game settles) waited for its pipeline behind the whole FIFO pipeline pool: on a cold cache entering
+  the world over 20 s, after which the title never queued work again (2 of 2 runs); the waiting draw
+  now builds it itself (`REGPU_NO_INLINE_PIPELINE=1` stalls again). Cold FX: free roam at ~32 fps.
+- **FX frame rate (optimised build): 33-35 fps free roam, CPU-bound in ReGPU's draw thread, not the
+  GPU** (correction, 16:30). Flattening the three heaviest post shaders to a constant: 34.7 -> 34.7 fps.
+  `REGPU_NO_RENDER=1` live: 34 -> 44 fps (renderer draw 22 ms -> 0.4 ms), worker still ~90% busy and
+  the command processor never idle. So ~6 ms a frame is the draw thread's per-draw work (~3,800 draws,
+  ~5.8 us each on the FX-8350; no AVX2 there, so FullHash takes the scalar lanes), the rest is the
+  stream itself. The GTX 970 reads 100% busy but sets no limit; the GPU timestamps below overlap the
+  CPU wait. The title's main thread spends ~40% in a yield loop at 824192A0 (D3D's fence wait,
+  reading device+0x2B10 against +0x2B1C): it waits for the GPU fence, i.e. for ReGPU. Sampling
+  threads with SuspendThread can hang the game (no VdSwap) when it lands in the handshake.
+  Parallel segments (only run without the draw thread): base 33.2 fps; GLUE2GPU_NO_DRAW_THREAD=1
+  31.6; plus REGPU_DRAW_WORKERS=6 24.6 (draw 50 ms); =4 never reached free roam.
+  Earlier reading kept for the numbers (GPU 29.4 ms of a ~30.5 ms frame; ReGPU draw 23 ms). `REGPU_GPU_PASSES=1`: main scene 6.6 ms, a 13-draw post pass 4.6 ms (full-screen
+  quads vs 0DECEC02: ps 88601106 1.2 ms, 316F3F67 0.9 ms, ...). No gain on the FX: an SSE2 FullHash,
+  REGPU_CONSTANTS_IN_RING, REGPU_DRAW_WORKERS=4 (slower). Tests: `run/shimmer-tools/fxperf.ps1`.
+  (A failed configure left build/plugin without -O2 for half a day: 18 fps then; see the build notes.)
