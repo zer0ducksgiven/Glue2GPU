@@ -332,6 +332,11 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     // same picture. GLUE2GPU_NO_DRAW_THREAD=1 keeps one thread (ReGPU only checks the variable is set).
     if (!std::getenv("GLUE2GPU_NO_DRAW_THREAD") && !std::getenv("REGPU_DRAW_THREAD"))
         _putenv_s("REGPU_DRAW_THREAD", "1");
+    // REGPU_LEAN_FETCH: one sample per 2D pixel fetch (no branch per sampler), which FH1's full-screen
+    // post shaders make a dozen of a pixel. FX at 2560x1440 (GTX 970): 20.2 -> 21.7 fps, two boot pairs,
+    // the same picture. Its shaders cache apart (one recompile). GLUE2GPU_NO_LEAN_FETCH=1 keeps the full fetch.
+    if (!std::getenv("GLUE2GPU_NO_LEAN_FETCH") && !std::getenv("REGPU_LEAN_FETCH"))
+        _putenv_s("REGPU_LEAN_FETCH", "1");
 
     regpu::Start();
     started_ = true;
