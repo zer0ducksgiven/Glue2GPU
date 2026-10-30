@@ -97,6 +97,37 @@ REXCVAR_DEFINE_STRING(resolution_scale, "1", "Display", "Game MSAA scene: 1 1280
 
 std::string StartingFlag(const char* name);
 
+// The graphics screen's output resolution (0: the launcher's window size, left alone).
+std::atomic<uint32_t> g_outputW{ 0 }, g_outputH{ 0 };
+
+// The game window's client area to the output resolution, kept inside the monitor's work area at
+// the same aspect. Not when maximised or fullscreen (no caption). Asynchronous: the window's own
+// thread does it.
+void ResizeWindowTo(HWND hwnd, uint32_t width, uint32_t height)
+{
+    if (!hwnd || !width || !height || IsZoomed(hwnd) || !(GetWindowLongW(hwnd, GWL_STYLE) & WS_CAPTION))
+        return;
+    const DWORD style = DWORD(GetWindowLongW(hwnd, GWL_STYLE)), exStyle = DWORD(GetWindowLongW(hwnd, GWL_EXSTYLE));
+    MONITORINFO mi{ sizeof(mi) };
+    GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi);
+    RECT frame{ 0, 0, 0, 0 };
+    AdjustWindowRectEx(&frame, style, FALSE, exStyle);
+    const double maxW = double(mi.rcWork.right - mi.rcWork.left - (frame.right - frame.left));
+    const double maxH = double(mi.rcWork.bottom - mi.rcWork.top - (frame.bottom - frame.top));
+    const double fit = std::min({ 1.0, maxW / width, maxH / height });
+    RECT r{ 0, 0, LONG(width * fit), LONG(height * fit) };
+    AdjustWindowRectEx(&r, style, FALSE, exStyle);
+    const int w = r.right - r.left, h = r.bottom - r.top;
+    RECT now{};
+    GetWindowRect(hwnd, &now);
+    // Kept on the work area: moved up and left as far as it has to.
+    const int x = std::max<int>(mi.rcWork.left, std::min<int>(now.left, mi.rcWork.right - w));
+    const int y = std::max<int>(mi.rcWork.top, std::min<int>(now.top, mi.rcWork.bottom - h));
+    SetWindowPos(hwnd, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+    REXLOG_INFO("glue2gpu: window {}x{} for the {}x{} output", r.right - r.left - (frame.right - frame.left),
+                r.bottom - r.top - (frame.bottom - frame.top), width, height);
+}
+
 // graphics-settings.json's "key": "value" pairs (the graphics screen writes it flat).
 std::unordered_map<std::string, std::string> SavedGraphicsSettings()
 {
@@ -164,11 +195,14 @@ void MenuRenderSettings(regpu::Config& config)
     }
     else
     {
-        // Game MSAA: the scene at the chosen multiple of 720p, shown at the window's size.
+        // Game MSAA: ReGPU draws the scene and the HUD at one size, so the output's, or the MSAA
+        // scene's when that is larger (drawn bigger and scaled down to the window).
         const uint32_t s = uint32_t(std::clamp(std::atoi(scale.c_str()), 1, 3));
-        config.width = 1280 * s;
-        config.height = 720 * s;
+        config.width = std::max(outW, 1280 * s);
+        config.height = std::max(outH, 720 * s);
     }
+    g_outputW = outW;
+    g_outputH = outH;
     REXLOG_INFO("glue2gpu: graphics screen: output {}, upscaler {}, scene scale {} -> render {}x{}", output, upscaler,
                 scale, config.width, config.height);
 }
@@ -293,7 +327,7 @@ std::string StartingFlag(const char* name)
 // The game's graphics screen (FH1R's graphics_menu.cpp) changes ReXGlue's flags while the game runs;
 // its live ones reach ReGPU here: frame rate limit and vsync, and texture filtering
 // (anisotropic_override: -1 the game's, 0 off, 1-5 1x-16x).
-void FollowGraphicsMenu()
+void FollowGraphicsMenu(HWND hwnd)
 {
     static std::string lastRate, lastVsync, lastAniso;
     const std::string rate = rex::cvar::GetFlagByName("frame_rate"), vsync = rex::cvar::GetFlagByName("vsync");
@@ -313,7 +347,11 @@ void FollowGraphicsMenu()
         if (!request.empty())
         {
             rex::cvar::SetFlagByName("fh1_graphics_result", request + "|ok");
-            REXLOG_INFO("glue2gpu: graphics screen request '{}' saved; applies at the next start", request);
+            REXLOG_INFO("glue2gpu: graphics screen request '{}' saved; the drawing size applies at the next start", request);
+            // The window follows at once ("id width height scale mode").
+            unsigned id = 0, width = 0, height = 0;
+            if (std::sscanf(request.c_str(), "%u %u %u", &id, &width, &height) == 3)
+                ResizeWindowTo(hwnd, width, height);
         }
     }
     static std::string lastAo = "?";
@@ -340,6 +378,7 @@ void StartTitleFps(HWND hwnd)
         auto last = std::chrono::steady_clock::now();
         uint64_t lastSwaps = g_swaps.load();
         SetWindowTextW(hwnd, L"Forza Horizon - ReGPU");
+        ResizeWindowTo(hwnd, g_outputW, g_outputH);
         while (IsWindow(hwnd))
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -351,7 +390,7 @@ void StartTitleFps(HWND hwnd)
             wchar_t title[96];
             swprintf_s(title, L"Forza Horizon - ReGPU - %.0f fps", fps);
             SendMessageTimeoutW(hwnd, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(title), SMTO_ABORTIFHUNG, 200, nullptr);
-            FollowGraphicsMenu();
+            FollowGraphicsMenu(hwnd);
         }
     }).detach();
 }
