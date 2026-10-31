@@ -100,33 +100,6 @@ std::string StartingFlag(const char* name);
 // The graphics screen's output resolution (0: the launcher's window size, left alone).
 std::atomic<uint32_t> g_outputW{ 0 }, g_outputH{ 0 };
 
-// The game window's client area to the output resolution, kept inside the monitor's work area at
-// the same aspect. Not when maximised or fullscreen (no caption). Asynchronous: the window's own
-// thread does it.
-void ResizeWindowTo(HWND hwnd, uint32_t width, uint32_t height)
-{
-    if (!hwnd || !width || !height || IsZoomed(hwnd) || !(GetWindowLongW(hwnd, GWL_STYLE) & WS_CAPTION))
-        return;
-    const DWORD style = DWORD(GetWindowLongW(hwnd, GWL_STYLE)), exStyle = DWORD(GetWindowLongW(hwnd, GWL_EXSTYLE));
-    MONITORINFO mi{ sizeof(mi) };
-    GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi);
-    RECT frame{ 0, 0, 0, 0 };
-    AdjustWindowRectEx(&frame, style, FALSE, exStyle);
-    const double maxW = double(mi.rcWork.right - mi.rcWork.left - (frame.right - frame.left));
-    const double maxH = double(mi.rcWork.bottom - mi.rcWork.top - (frame.bottom - frame.top));
-    const double fit = std::min({ 1.0, maxW / width, maxH / height });
-    RECT r{ 0, 0, LONG(width * fit), LONG(height * fit) };
-    AdjustWindowRectEx(&r, style, FALSE, exStyle);
-    const int w = r.right - r.left, h = r.bottom - r.top;
-    RECT now{};
-    GetWindowRect(hwnd, &now);
-    // Kept on the work area: moved up and left as far as it has to.
-    const int x = std::max<int>(mi.rcWork.left, std::min<int>(now.left, mi.rcWork.right - w));
-    const int y = std::max<int>(mi.rcWork.top, std::min<int>(now.top, mi.rcWork.bottom - h));
-    SetWindowPos(hwnd, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
-    REXLOG_INFO("glue2gpu: window {}x{} for the {}x{} output", r.right - r.left - (frame.right - frame.left),
-                r.bottom - r.top - (frame.bottom - frame.top), width, height);
-}
 
 // graphics-settings.json's "key": "value" pairs (the graphics screen writes it flat).
 std::unordered_map<std::string, std::string> SavedGraphicsSettings()
@@ -356,7 +329,7 @@ void FollowGraphicsMenu(HWND hwnd)
             // The window follows at once ("id width height scale mode").
             unsigned id = 0, width = 0, height = 0;
             if (std::sscanf(request.c_str(), "%u %u %u", &id, &width, &height) == 3)
-                ResizeWindowTo(hwnd, width, height);
+                regpu::SetWindowSize(width, height);
         }
     }
     static std::string lastAo = "?";
@@ -383,7 +356,7 @@ void StartTitleFps(HWND hwnd)
         auto last = std::chrono::steady_clock::now();
         uint64_t lastSwaps = g_swaps.load();
         SetWindowTextW(hwnd, L"Forza Horizon - ReGPU");
-        ResizeWindowTo(hwnd, g_outputW, g_outputH);
+        regpu::SetWindowSize(g_outputW, g_outputH); // (exactly the output; ReGPU)
         while (IsWindow(hwnd))
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
