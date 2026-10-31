@@ -88,8 +88,9 @@ std::atomic<uint64_t> g_swaps{ 0 };
 // The graphics screen's rebuild settings: output resolution, upscaler, MSAA scene resolution and
 // anti-aliasing. Its Save sends them as fh1_graphics_request ("id width height scale mode") and
 // waits for "id|ok" in fh1_graphics_result, then writes graphics-settings.json; ReXGlue's Vulkan
-// renderer defines these and rebuilds live. ReGPU sizes its targets once, so here they apply at the
-// next start: the plugin answers ok and reads the file then (MenuRenderSettings).
+// renderer defines these and rebuilds live. Here the plugin answers ok and applies them at once
+// (FollowGraphicsMenu: regpu::SetOutputSize and the upscaler), and reads the file at start
+// (MenuRenderSettings).
 REXCVAR_DEFINE_STRING(fh1_graphics_request, "", "Display", "Graphics screen request (ReGPU)");
 REXCVAR_DEFINE_STRING(fh1_graphics_result, "", "Display", "Graphics screen result (ReGPU)");
 REXCVAR_DEFINE_STRING(fh1_upscaler, "off", "Display", "Upscaler: off, fsr1_quality, fsr1_balanced, fsr1_performance (ReGPU)");
@@ -138,6 +139,34 @@ std::unordered_map<std::string, std::string> SavedGraphicsSettings()
 
 // The saved choices: the menu's flags (so the screen shows them) and ReGPU's render size and
 // upscaler. Output 720p is the launcher's mode, where the screen leaves the other three alone.
+// The graphics screen's output, MSAA scene scale and upscaler mode as ReGPU's drawing size and upscaler.
+// An output of 1280x720 is the launcher's mode: 720p, no upscaler (the screen greys the other rows).
+void ApplyRenderChoice(regpu::Config& config, uint32_t outW, uint32_t outH, int scale, const std::string& mode)
+{
+    config.upscaler = regpu::Config::Upscaler::Off;
+    if (outW <= 1280)
+    {
+        config.width = 1280;
+        config.height = 720;
+    }
+    else if (mode.rfind("fsr1_", 0) == 0)
+    {
+        // FSR 1 draws a smaller scene and scales it up to the output.
+        config.width = outW;
+        config.height = outH;
+        config.upscaler = regpu::Config::Upscaler::Fsr1;
+        config.quality = mode == "fsr1_performance" ? 3 : mode == "fsr1_balanced" ? 2 : 1;
+    }
+    else
+    {
+        // Game MSAA: ReGPU draws the scene and the HUD at one size, so the output's, or the MSAA
+        // scene's when that is larger (drawn bigger and scaled down to the window).
+        const uint32_t s = uint32_t(std::clamp(scale, 1, 3));
+        config.width = std::max(outW, 1280 * s);
+        config.height = std::max(outH, 720 * s);
+    }
+}
+
 void MenuRenderSettings(regpu::Config& config)
 {
     const auto saved = SavedGraphicsSettings();
@@ -158,22 +187,7 @@ void MenuRenderSettings(regpu::Config& config)
         return;
     const uint32_t outW = output == "4k" ? 3840 : output == "1440p" ? 2560 : 1920;
     const uint32_t outH = output == "4k" ? 2160 : output == "1440p" ? 1440 : 1080;
-    if (upscaler.rfind("fsr1_", 0) == 0)
-    {
-        // FSR 1 draws a smaller scene and scales it up to the output.
-        config.width = outW;
-        config.height = outH;
-        config.upscaler = regpu::Config::Upscaler::Fsr1;
-        config.quality = upscaler == "fsr1_performance" ? 3 : upscaler == "fsr1_balanced" ? 2 : 1;
-    }
-    else
-    {
-        // Game MSAA: ReGPU draws the scene and the HUD at one size, so the output's, or the MSAA
-        // scene's when that is larger (drawn bigger and scaled down to the window).
-        const uint32_t s = uint32_t(std::clamp(std::atoi(scale.c_str()), 1, 3));
-        config.width = std::max(outW, 1280 * s);
-        config.height = std::max(outH, 720 * s);
-    }
+    ApplyRenderChoice(config, outW, outH, std::atoi(scale.c_str()), upscaler);
     g_outputW = outW;
     g_outputH = outH;
     REXLOG_INFO("glue2gpu: graphics screen: output {}, upscaler {}, scene scale {} -> render {}x{}", output, upscaler,
@@ -326,11 +340,21 @@ void FollowGraphicsMenu(HWND hwnd)
         if (!request.empty())
         {
             rex::cvar::SetFlagByName("fh1_graphics_result", request + "|ok");
-            REXLOG_INFO("glue2gpu: graphics screen request '{}' saved; the drawing size applies at the next start", request);
+            REXLOG_INFO("glue2gpu: graphics screen request '{}'", request);
             // The window follows at once ("id width height scale mode").
             unsigned id = 0, width = 0, height = 0;
-            if (std::sscanf(request.c_str(), "%u %u %u", &id, &width, &height) == 3)
+            int scale = 1;
+            char mode[64] = {};
+            if (std::sscanf(request.c_str(), "%u %u %u %d %63s", &id, &width, &height, &scale, mode) >= 3)
             {
+                // The drawing size between frames (regpu::SetOutputSize); the upscaler is read each frame.
+                regpu::Config choice = regpu::GetConfig();
+                ApplyRenderChoice(choice, width, height, scale, mode);
+                regpu::GetConfig().upscaler = choice.upscaler;
+                regpu::GetConfig().quality = choice.quality;
+                regpu::SetOutputSize(choice.width, choice.height);
+                REXLOG_INFO("glue2gpu: graphics screen: output {}x{}, scene scale {}, mode {} -> render {}x{} now", width, height,
+                            scale, mode, choice.width, choice.height);
                 g_outputW = width;
                 g_outputH = height;
                 windowHeldUntil = std::chrono::steady_clock::now() + std::chrono::seconds(3);
