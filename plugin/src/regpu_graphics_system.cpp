@@ -308,6 +308,7 @@ std::string StartingFlag(const char* name)
 void FollowGraphicsMenu(HWND hwnd)
 {
     static std::string lastRate, lastVsync, lastAniso;
+    static std::chrono::steady_clock::time_point windowHeldUntil = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     const std::string rate = rex::cvar::GetFlagByName("frame_rate"), vsync = rex::cvar::GetFlagByName("vsync");
     if (rate != lastRate || vsync != lastVsync)
     {
@@ -329,8 +330,22 @@ void FollowGraphicsMenu(HWND hwnd)
             // The window follows at once ("id width height scale mode").
             unsigned id = 0, width = 0, height = 0;
             if (std::sscanf(request.c_str(), "%u %u %u", &id, &width, &height) == 3)
-                regpu::SetWindowSize(width, height);
+            {
+                g_outputW = width;
+                g_outputH = height;
+                windowHeldUntil = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            }
         }
+    }
+    // The screen's Save also sets ReXGlue's `resolution`, and ReXGlue then resizes its window to its own
+    // idea of it (1600x900 for 1440p here), after ours: for a few seconds after a change the window is put
+    // back to the chosen size whenever it differs (then left alone, so it can be resized by hand).
+    if (std::chrono::steady_clock::now() < windowHeldUntil && g_outputW)
+    {
+        RECT client{};
+        GetClientRect(hwnd, &client);
+        if (uint32_t(client.right) != g_outputW || uint32_t(client.bottom) != g_outputH)
+            regpu::SetWindowSize(g_outputW, g_outputH);
     }
     static std::string lastAo = "?";
     if (const std::string ao = rex::cvar::GetFlagByName("world_ambient_occlusion"); ao != lastAo)
