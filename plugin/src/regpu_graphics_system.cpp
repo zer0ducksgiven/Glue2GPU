@@ -280,10 +280,62 @@ float Fh1WorldAo(float2 gamePixel)
 }
 )";
 
+// Upscaled by a fractional scale (1.5 at 1080p) the shadow passes' screen-space lookups no longer line up
+// with the game's pixels, and distant tree shadows flickered (steady at 1440p, a whole scale). Two of them:
+// - The sample spiral turns by the pixel position (the position register, a 2x2 pattern on whole pixels),
+//   and the mask's 2x2 blur (kShadowMaskBlur) evens the pattern out. Stepping by 2/3 of a game pixel, the
+//   pattern lost its period and the blur no longer cancelled it. Both run on host pixels instead: the
+//   spiral by the host pixel, the blur's taps half a host texel out.
+//   GLUE2GPU_GUEST_DITHER=1 (live, the debug server's "env"): the game's own (A/B).
+// - The scene depth is fetched at the pixel and one row below (texel offsets y 0.5, 1.5), its slope
+//   setting the shadow bias. Point-sampled, the row below was one host row away or two, unevenly, and
+//   the bias alternated row by row: horizontal streaks of acne along distant ground. The row below is
+//   now the next host row, its difference scaled to a game row (identical at a scale of 1).
+//   (Relies on ReGPU's whole-pixel position register: from the host pixel's centre, both fetches fell on
+//   one host row.) GLUE2GPU_GAME_DEPTH_TAP=1 (live): fetched as the game does (A/B).
+// (Measured parked at 1080p, flickering pixels on the distant ground: 13% with the game's depth fetch,
+// 6% with this one; the rest is swaying foliage.)
+constexpr uint64_t kShadowMaskBlur = 0x9074c6d4cedebb8eull;
+constexpr uint32_t kShadowBlurTag = 0xA1;
+// (ReGPU's position register, hlsl.cpp.)
+constexpr char kGamePosition[] = "= float4(((pinfo.z & 64u) ? floor(input.pos.xy) : input.pos.xy) * pinfo2.yz, input.pcoord);";
+constexpr char kHostPosition[] = "= float4((vuser[0].y > 0.0) ? floor(input.pos.xy) : ((pinfo.z & 64u) ? floor(input.pos.xy) : input.pos.xy) * pinfo2.yz, input.pcoord);";
+
+constexpr char kDepthTapHlsl[] = R"(
+float4 Fh1DepthTap(uint slot, float3 coord, bool denorm, float bias, float2 texel)
+{
+    if (vuser[0].z <= 0.0 || texel.y < 1.0) return TFetch2D(slot, coord, denorm, bias, texel);
+    const float2 own = texel - float2(0.0, 1.0);
+    const float4 c = TFetch2D(slot, coord, denorm, bias, own);
+    return c + (TFetch2D(slot, coord, denorm, bias, own + float2(0.0, pinfo2.z)) - c) / pinfo2.z;
+}
+)";
+
 uint32_t RewriteShader(uint64_t hash, std::string& hlsl, bool pixel)
 {
+    if (pixel && hash == kShadowMaskBlur)
+    {
+        size_t n = 0;
+        for (const char* tap : { "float2(-0.5, -0.5))", "float2(0.5, -0.5))", "float2(-0.5, 0.5))", "float2(0.5, 0.5))" })
+            if (const size_t at = hlsl.find(tap); at != std::string::npos)
+            {
+                hlsl.replace(at, strlen(tap), std::string(tap, strlen(tap) - 1) + " * ((vuser[0].y > 0.0) ? pinfo2.yz : 1.0))");
+                n++;
+            }
+        if (n != 4)
+            REXLOG_WARN("glue2gpu: shadow mask blur {:016x} isn't laid out as expected ({} taps)", hash, n);
+        return kShadowBlurTag;
+    }
     if (!pixel || std::find(std::begin(kShadowPasses), std::end(kShadowPasses), hash) == std::end(kShadowPasses))
         return 0;
+    for (size_t at; (at = hlsl.find(kGamePosition)) != std::string::npos;)
+        hlsl.replace(at, strlen(kGamePosition), kHostPosition);
+    size_t taps = 0;
+    for (size_t at; (at = hlsl.find("TFetch2D(0, ")) != std::string::npos; taps++)
+        hlsl.replace(at, strlen("TFetch2D(0, "), "Fh1DepthTap(0, ");
+    if (taps == 0)
+        REXLOG_WARN("glue2gpu: shadow pass {:016x}: no depth fetch", hash);
+    hlsl.insert(hlsl.find("float4 main("), kDepthTapHlsl);
     const size_t main = hlsl.find("float4 main("), output = hlsl.find("    switch (pinfo.x)");
     if (main == std::string::npos || output == std::string::npos || hlsl.find("TFetch") == std::string::npos)
     {
@@ -297,6 +349,20 @@ uint32_t RewriteShader(uint64_t hash, std::string& hlsl, bool pixel)
 
 void OnDraw(uint64_t, uint64_t, uint32_t, uint32_t psTag, const float (*)[4], float user[4][4])
 {
+    // (Read now and then: a getenv per draw costs frame rate.)
+    static uint32_t calls = 0;
+    static bool guestDither = false, gameDepthTap = false;
+    if (psTag == kShadowPassTag || psTag == kShadowBlurTag)
+    {
+        if (calls++ % 512 == 0)
+        {
+            const auto on = [](const char* name) { const char* v = getenv(name); return v && *v == '1'; };
+            guestDither = on("GLUE2GPU_GUEST_DITHER");
+            gameDepthTap = on("GLUE2GPU_GAME_DEPTH_TAP");
+        }
+        user[0][1] = guestDither ? 0.0f : 1.0f;
+        user[0][2] = gameDepthTap ? 0.0f : 1.0f;
+    }
     if (psTag == kShadowPassTag)
         user[0][0] = g_aoIntensity.load(std::memory_order_relaxed);
 }
