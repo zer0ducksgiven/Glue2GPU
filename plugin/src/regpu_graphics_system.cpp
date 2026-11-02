@@ -298,8 +298,8 @@ float Fh1WorldAo(float2 gamePixel)
 constexpr uint64_t kShadowMaskBlur = 0x9074c6d4cedebb8eull;
 constexpr uint32_t kShadowBlurTag = 0xA1;
 // (ReGPU's position register, hlsl.cpp.)
-constexpr char kGamePosition[] = "= float4(((pinfo.z & 64u) ? floor(input.pos.xy) : input.pos.xy) * pinfo2.yz, input.pcoord);";
-constexpr char kHostPosition[] = "= float4((vuser[0].y > 0.0) ? floor(input.pos.xy) : ((pinfo.z & 64u) ? floor(input.pos.xy) : input.pos.xy) * pinfo2.yz, input.pcoord);";
+constexpr char kGamePosition[] = "= float4(((pinfo.z & 65536u) ? floor(input.pos.xy) : input.pos.xy) * pinfo2.yz, input.pcoord);";
+constexpr char kHostPosition[] = "= float4((vuser[0].y > 0.0) ? floor(input.pos.xy) : ((pinfo.z & 65536u) ? floor(input.pos.xy) : input.pos.xy) * pinfo2.yz, input.pcoord);";
 
 constexpr char kDepthTapHlsl[] = R"(
 float4 Fh1DepthTap(uint slot, float3 coord, bool denorm, float bias, float2 texel)
