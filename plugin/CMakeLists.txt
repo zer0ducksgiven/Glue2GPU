@@ -11,6 +11,21 @@ set(GLUE2GPU_REGPU "${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/ReGPU" CACHE PATH 
 
 find_package(rexglue CONFIG REQUIRED)
 
+# Profile-guided build (ReGPU and the plugin): GLUE2GPU_PGO=generate builds the counting DLL (it
+# writes its profile itself, see regpu_graphics_system.cpp; LLVM_PROFILE_FILE names the file), then
+# GLUE2GPU_PGO=<merged .profdata> builds the optimised one. Empty: an ordinary build.
+# pgo/drive.profdata: the replayed free-roam drive, 70-130 s (2026-11-02): FH1 99.3 -> 105.5 fps, two
+# alternating pairs, lows 93.5 -> 99. Built against older sources it still applies where it matches
+# (out-of-date warnings are off); record it again after large changes to the draw path.
+set(GLUE2GPU_PGO "" CACHE STRING "Profile-guided build: generate, or a .profdata path to use")
+if(GLUE2GPU_PGO STREQUAL "generate")
+    add_compile_options(-fprofile-instr-generate)
+    add_link_options(-fprofile-instr-generate)
+    add_compile_definitions(GLUE2GPU_PGO_GENERATE)
+elseif(GLUE2GPU_PGO)
+    add_compile_options("-fprofile-instr-use=${GLUE2GPU_PGO}" -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date)
+endif()
+
 # ReGPU without its Vd* exports, against ReXGlue's PPCContext (regpu::driver).
 set(REGPU_GUEST_ABI rexglue)
 set(REGPU_REXGLUE_DIR "${GLUE2GPU_REXGLUE}")

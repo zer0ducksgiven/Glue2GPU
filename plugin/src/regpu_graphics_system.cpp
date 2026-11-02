@@ -21,6 +21,11 @@
 #include <windows.h>
 #include <shellapi.h> // CommandLineToArgvW
 
+#ifdef GLUE2GPU_PGO_GENERATE
+extern "C" int __llvm_profile_write_file(void);
+extern "C" void __llvm_profile_reset_counters(void);
+#endif
+
 #include <rex/cvar.h>
 #include <rex/runtime.h>
 #include <rex/ui/window.h>
@@ -784,6 +789,21 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
     // the same picture. Its shaders cache apart (one recompile). GLUE2GPU_NO_LEAN_FETCH=1 keeps the full fetch.
     if (!std::getenv("GLUE2GPU_NO_LEAN_FETCH") && !std::getenv("REGPU_LEAN_FETCH"))
         _putenv_s("REGPU_LEAN_FETCH", "1");
+#ifdef GLUE2GPU_PGO_GENERATE
+    // Profile-guided build, first stage (the plugin's CMake option GLUE2GPU_PGO=generate): the
+    // counters are reset GLUE2GPU_PGO_START seconds in (past the boot and menus; default 70) and written
+    // GLUE2GPU_PGO_SECONDS later (default 60), since a profiled run ends with the game closed by force.
+    std::thread([] {
+        const auto secs = [](const char* name, int fallback) {
+            const char* v = std::getenv(name);
+            return std::chrono::seconds(v ? std::atoi(v) : fallback);
+        };
+        std::this_thread::sleep_for(secs("GLUE2GPU_PGO_START", 70));
+        __llvm_profile_reset_counters();
+        std::this_thread::sleep_for(secs("GLUE2GPU_PGO_SECONDS", 60));
+        REXLOG_INFO("glue2gpu: profile written ({})", __llvm_profile_write_file());
+    }).detach();
+#endif
 
     regpu::Start();
     started_ = true;
