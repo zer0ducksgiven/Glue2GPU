@@ -311,8 +311,36 @@ float4 Fh1DepthTap(uint slot, float3 coord, bool denorm, float bias, float2 texe
 }
 )";
 
+// The shadow mask's first pass: full screen, but it writes only the car's interior (stencil == the
+// car's id); the cascade volumes after it write the world within shadow range. Distant terrain beyond
+// the last cascade is written by none of them. On the console those mask pixels hold what the shadow
+// maps' depth left in the same EDRAM (mostly "far": lit); here they held the colour surface's previous
+// frame, which drifted over the scenery as the cockpit camera moved (dark smears on distant terrain).
+// The mask is cleared to lit (white) before this pass, once a frame. GLUE2GPU_STALE_SHADOW_MASK=1:
+// not cleared, as before.
+constexpr uint64_t kShadowMaskFirst = 0xa5ed6d1df8f35824ull;
+constexpr uint32_t kShadowMaskFirstTag = 0xA2;
+std::atomic<uint64_t> g_swapCount{ 0 };
+
+bool ClearBeforeDraw(uint64_t, uint64_t, uint32_t, uint32_t psTag, float colour[4])
+{
+    static const bool stale = [] { const char* v = getenv("GLUE2GPU_STALE_SHADOW_MASK"); return v && *v == '1'; }();
+    static uint64_t clearedSwap = ~0ull;
+    if (stale || psTag != kShadowMaskFirstTag)
+        return false;
+    // Only its first draw: the second is a 640x360 view that writes no colour.
+    const uint64_t swap = g_swapCount.load(std::memory_order_relaxed);
+    if (swap == clearedSwap)
+        return false;
+    clearedSwap = swap;
+    colour[0] = colour[1] = colour[2] = colour[3] = 1.0f;
+    return true;
+}
+
 uint32_t RewriteShader(uint64_t hash, std::string& hlsl, bool pixel)
 {
+    if (pixel && hash == kShadowMaskFirst)
+        return kShadowMaskFirstTag;
     if (pixel && hash == kShadowMaskBlur)
     {
         size_t n = 0;
@@ -533,8 +561,7 @@ void GuestCall(PPCContext& ctx, uint32_t address)
 // on the CPU. "some" (the default, as stock ReXGlue's readback_resolve=some): an image the first
 // time it is resolved, and again after 60 frames without it; "all" (every resolve, deferred: ~4 fps
 // in FH1), "now" (every one at once), "none". FH1 TU4's render thread waits on (or reads a null
-// from) a resolved image otherwise.
-std::atomic<uint64_t> g_swapCount{ 0 };
+// from) a resolved image otherwise. (g_swapCount: with the shadow mask's clear, above.)
 regpu::Writeback ResolveWriteback(const regpu::ResolveCopy& copy)
 {
     static const std::string mode = std::getenv("GLUE2GPU_WRITEBACK") ? std::getenv("GLUE2GPU_WRITEBACK") : "some";
@@ -619,6 +646,7 @@ void ReGpuGraphicsSystem::FillHost()
     };
     host.rewriteShader = RewriteShader;
     host.onDraw = OnDraw;
+    host.clearBeforeDraw = ClearBeforeDraw;
 }
 
 X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* dispatcher,
