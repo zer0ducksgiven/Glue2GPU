@@ -94,7 +94,8 @@ new shader stalls the game. Glue2GPU covers this in three layers:
 
 To record a seed, play with a fresh `--cache_root` (free roam, races, menus, different times of day),
 then merge the `P` and `V` lines of each run's `<cache_root>/regpu/pipelines.manifest`. FH1's seed
-(2,234 pipelines and 140 variants) ships with FH1R in `forza-recomp/regpu-plugin/seed/`.
+(2,234 pipelines and 140 variants) ships with FH1R in `forza-recomp/regpu-plugin/seed/`; build with
+`-DGLUE2GPU_PIPELINE_SEED=<FH1R>/forza-recomp/regpu-plugin/seed/pipelines.manifest` to compile it in.
 
 ## Building
 

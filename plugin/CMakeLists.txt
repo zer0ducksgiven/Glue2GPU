@@ -32,12 +32,26 @@ set(REGPU_REXGLUE_DIR "${GLUE2GPU_REXGLUE}")
 add_subdirectory("${GLUE2GPU_REGPU}" regpu)
 
 # ReXGlue's loader looks for rexgpu-<name> beside the executable.
+# The shipped pipeline list (Host::pipelineSeed), compiled in as text.
+# GLUE2GPU_PIPELINE_SEED: FH1R's forza-recomp/regpu-plugin/seed/pipelines.manifest. Empty: no seed.
+set(GLUE2GPU_PIPELINE_SEED "" CACHE FILEPATH "Pipeline seed manifest (FH1R's regpu-plugin/seed/pipelines.manifest)")
+set(_regpu_seed_cpp "${CMAKE_CURRENT_BINARY_DIR}/fh1_pipeline_seed.cpp")
+set(_seed_hex "")
+if(GLUE2GPU_PIPELINE_SEED)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GLUE2GPU_PIPELINE_SEED}")
+    file(READ "${GLUE2GPU_PIPELINE_SEED}" _seed_hex HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _seed_hex "${_seed_hex}")
+endif()
+file(WRITE "${_regpu_seed_cpp}.tmp" "extern const char kFh1PipelineSeed[] = {${_seed_hex}0};
+")
+file(COPY_FILE "${_regpu_seed_cpp}.tmp" "${_regpu_seed_cpp}" ONLY_IF_DIFFERENT)
 add_library(rexgpu-regpu SHARED
     src/fh1_boot_screen.cpp
     src/fh1_shaders.cpp
     src/plugin_main.cpp
     src/regpu_graphics_system.cpp
-    src/stack_dump.cpp)
+    src/stack_dump.cpp
+    "${_regpu_seed_cpp}")
 target_link_libraries(rexgpu-regpu PRIVATE regpu rex::runtime dbghelp shell32)
 # ReGPU's microcode and texture decoders (the shader search, the boot screen's art).
 target_include_directories(rexgpu-regpu PRIVATE "${GLUE2GPU_REGPU}/src")

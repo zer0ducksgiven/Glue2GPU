@@ -50,6 +50,7 @@ REXCVAR_DEFINE_BOOL(vsync, false, "Display", "Wait for the display's refresh (Re
 REXCVAR_DEFINE_INT32(anisotropic_override, -1, "Display",
                      "Texture filtering: -1 the game's, 0 off, 1-5 1x-16x anisotropic (ReGPU)");
 
+extern const char kFh1PipelineSeed[]; // generated from the seed manifest (CMakeLists.txt)
 namespace glue2gpu
 {
 namespace
@@ -720,6 +721,7 @@ X_STATUS ReGpuGraphicsSystem::SetupGuestGpu(rex::runtime::FunctionDispatcher* di
         host.staticShaders = StaticShaders;
         host.staticShadersSaved = StaticShadersSaved;
         host.bootScreen = BootScreenCompose;
+        host.pipelineSeed = [] { return kFh1PipelineSeed; };
         if (std::getenv("GLUE2GPU_BOOTSCREEN_PREVIEW"))
             BootScreenPreview();
     }
