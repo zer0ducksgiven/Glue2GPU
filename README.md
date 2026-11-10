@@ -175,3 +175,10 @@ ReGPU's own `REGPU_*` switches are listed in its README.
 ## Licence
 
 Glue2GPU's plugin code is MIT, like ReGPU. FidelityFX's FSR 1 headers are MIT.
+
+The plugin builds against ReXGlue's headers and links its `rexruntime.dll`. ReXGlue is BSD 3-Clause
+and partly derived from Xenia (BSD 3-Clause); its runtime's LZX decoder is libmspack (LGPL 2.1), which
+stays in `rexruntime.dll` and is not compiled into the plugin. The plugin DLL does contain code from
+spdlog and {fmt} (both MIT), which come in through ReXGlue's logging headers. If you ship the DLL, ship
+those licences with it: ReXGlue's `LICENSE`, and spdlog's and {fmt}'s from ReXGlue's `thirdparty/`.
+ReGPU's own credits, including its Xenia notice, are in ReGPU's README.
